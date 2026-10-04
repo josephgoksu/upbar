@@ -647,8 +647,11 @@ struct Popover: View {
             Spacer()
             Menu {
                 // Read when the footer redraws, about once a check. No timer.
-                Text("CPU " + (store.cpu.map { String(format: "%.2f%%", $0 * 100) } ?? "–") + " last minute · "
-                     + (memoryFootprint().map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .memory) } ?? "–"))
+                // Upbar's own use, not the Mac's.
+                Section("Upbar uses") {
+                    Text("CPU: " + (store.cpu.map { String(format: "%.2f%%", $0 * 100) } ?? "measuring…") + " (last minute)")
+                    Text("Memory: " + (memoryFootprint().map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .memory) } ?? "–"))
+                }
                 Divider()
                 Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)
                 Section("Events") {
