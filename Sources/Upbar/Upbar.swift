@@ -479,19 +479,17 @@ struct Popover: View {
                 VStack(spacing: 0) {
                     hero
                     TabBar(tab: $tab, unread: receiver.unread).padding(.horizontal, 14).padding(.bottom, 10)
-                    // Both tabs stay in the layout, so the window keeps one height and never floats when you switch.
-                    ZStack(alignment: .top) {
-                        list.frame(maxHeight: .infinity, alignment: .top).tabPane(tab == .endpoints)
-                        EventList().frame(maxHeight: .infinity).tabPane(tab == .events)
-                    }
+                    Group { if tab == .endpoints { list } else { EventList() } }
+                        .frame(maxHeight: .infinity, alignment: .top)
                     footer
                 }
                 .onChange(of: tab) { if tab == .events { receiver.unread = 0 } }
                 .onChange(of: receiver.unread) { if tab == .events { receiver.unread = 0 } }
             }
         }
-        .frame(width: 360)
-        .fixedSize(horizontal: false, vertical: true)  // the window fits its content, list or editor
+        // One fixed size for every view. macOS grows a menu bar window but never shrinks it,
+        // so a size that follows the content leaves the popover floating in an oversized window.
+        .frame(width: 360, height: 560)
         .background {
             // A solid material keeps text readable over anything; the tint wash carries the status.
             ZStack(alignment: .top) {
@@ -591,8 +589,6 @@ struct Popover: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 4)
             }
-            .frame(maxHeight: 420)
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -981,7 +977,6 @@ struct Editor: View {
                 }
             }
             .formStyle(.grouped)
-            .scrollDisabled(true)
         }
         .onAppear { urlFocused = true }
         .task { if !isNew { await test() } }  // show the current state of an existing endpoint right away
@@ -1003,13 +998,6 @@ struct Editor: View {
         testing = true
         (testResult, testTrace) = await probe(saved)
         testing = false
-    }
-}
-
-extension View {
-    /// Hides a tab without removing it, so it still counts toward the popover height.
-    func tabPane(_ shown: Bool) -> some View {
-        opacity(shown ? 1 : 0).allowsHitTesting(shown).accessibilityHidden(!shown)
     }
 }
 

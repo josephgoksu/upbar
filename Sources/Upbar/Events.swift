@@ -262,8 +262,6 @@ struct EventList: View {
                 }
                 .padding(.horizontal, 12)
             }
-            .frame(maxHeight: 420)
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

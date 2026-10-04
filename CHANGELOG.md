@@ -22,8 +22,8 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - When another app holds port 4747, Upbar says so and tries again every 5 seconds.
 - The test command uses the Tailscale address of the Mac when Tailscale is on.
 - The editor uses grouped sections and a title bar with **Cancel** and **Save**.
-- The window has a solid background and fits its content.
-- The Events tab and empty lists use native empty states. Switching tabs no longer leaves the window too tall.
+- The window has a solid background and one fixed size. The list and the editor scroll inside it.
+- The Events tab and empty lists use native empty states.
 - New look: a status ring and tint in the header, pill tabs, website cards with letter tiles, and a 24-hour response time chart in the editor. Upbar has no new dependencies; the chart uses Swift Charts.
 - The response-time bars use 2 times the median as the full height. Thus, small changes are visible.
 
