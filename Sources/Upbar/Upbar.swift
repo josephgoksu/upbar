@@ -93,8 +93,9 @@ final class Store {
     init() {
         let saved = UserDefaults.standard.data(forKey: "endpoints")
         endpoints = saved.flatMap { try? JSONDecoder().decode([Endpoint].self, from: $0) } ?? []
-        if isApp { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
-        path.pathUpdateHandler = { [weak self] path in
+        if isApp { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) } }
+        // @Sendable: macOS calls this on a background queue, so it must not inherit the main actor.
+        path.pathUpdateHandler = { @Sendable [weak self] path in
             Task { @MainActor in
                 guard let self, self.online != (path.status == .satisfied) else { return }
                 self.online = path.status == .satisfied

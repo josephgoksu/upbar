@@ -4,6 +4,16 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-04
+
+### Fixed
+
+- Upbar stopped immediately after it started when it was built with Swift 6.1. The notification and network callbacks no longer run on the wrong thread.
+
+### Added
+
+- The CI and release workflows start the app and make sure that it keeps running.
+
 ## [0.1.0] - 2026-10-04
 
 ### Added
@@ -17,5 +27,6 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - Open at Login setting.
 - Installation script that does not use `sudo` and that compares a SHA-256 checksum.
 
-[Unreleased]: https://github.com/josephgoksu/upbar/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/josephgoksu/upbar/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/josephgoksu/upbar/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/josephgoksu/upbar/releases/tag/v0.1.0
