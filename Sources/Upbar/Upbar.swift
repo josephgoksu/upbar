@@ -44,27 +44,112 @@ let session: URLSession = {
     return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
 }()
 
-func probe(_ endpoint: Endpoint) async -> Health {
-    guard let url = URL(string: endpoint.url), url.host() != nil else { return .down("Invalid URL") }
+/// Where one request spent its time, from URLSessionTaskMetrics. The editor draws it as a waterfall.
+struct Trace: Equatable {
+    var dns = 0, connect = 0, tls = 0, server = 0  // milliseconds
+    var reused = false
+    var proto: String?  // h2, h3, http/1.1
+    var tlsVersion: String?
+    var address: String?
+    var certExpires: Date?
+}
+
+/// Records one task's metrics and the expiry of the server certificate. One per task, so parallel probes never mix.
+final class Recorder: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var metrics: Trace?
+    private var expires: Date?
+
+    var trace: Trace? { lock.withLock { metrics } }
+    var certExpires: Date? { lock.withLock { expires } }
+
+    /// Only a new TLS connection asks for trust, so a reused connection has no expiry date.
+    func urlSession(_: URLSession, task _: URLSessionTask, didReceive challenge: URLAuthenticationChallenge) async
+        -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        if let trust = challenge.protectionSpace.serverTrust,
+           let leaf = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first {
+            let date = notAfter(leaf)
+            lock.withLock { expires = date }
+        }
+        return (.performDefaultHandling, nil)  // macOS still validates the certificate
+    }
+
+    func urlSession(_: URLSession, task _: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        guard let m = metrics.transactionMetrics.last else { return }
+        func ms(_ from: Date?, _ to: Date?) -> Int {
+            guard let from, let to else { return 0 }
+            return max(0, Int(to.timeIntervalSince(from) * 1000))
+        }
+        let trace = Trace(dns: ms(m.domainLookupStartDate, m.domainLookupEndDate),
+                          connect: ms(m.connectStartDate, m.secureConnectionStartDate ?? m.connectEndDate),  // connectEnd includes TLS
+                          tls: ms(m.secureConnectionStartDate, m.secureConnectionEndDate),
+                          server: ms(m.requestStartDate, m.responseStartDate),
+                          reused: m.isReusedConnection, proto: m.networkProtocolName,
+                          tlsVersion: m.negotiatedTLSProtocolVersion.map { $0 == .TLSv13 ? "TLS 1.3" : $0 == .TLSv12 ? "TLS 1.2" : "TLS" },
+                          address: m.remoteAddress)
+        lock.withLock { self.metrics = trace }
+    }
+}
+
+/// The "not valid after" date of a certificate.
+func notAfter(_ certificate: SecCertificate) -> Date? {
+    let key = kSecOIDX509V1ValidityNotAfter
+    guard let values = SecCertificateCopyValues(certificate, [key] as CFArray, nil) as? [CFString: Any],
+          let entry = values[key] as? [CFString: Any], let seconds = entry[kSecPropertyKeyValue] as? NSNumber else { return nil }
+    return Date(timeIntervalSinceReferenceDate: seconds.doubleValue)
+}
+
+func probe(_ endpoint: Endpoint) async -> (Health, Trace?) {
+    guard let url = URL(string: endpoint.url), url.host() != nil else { return (.down("Invalid URL"), nil) }
     var start = ContinuousClock.now
+    let head = Recorder()
+    var deciding = head
     do {
         // HEAD first: same status, no body. Some servers answer HEAD differently (405, or even 400), so any
         // unexpected status is confirmed with a GET that stops after the headers. A down verdict is always a real GET.
         var request = URLRequest(url: url)
         request.httpMethod = "HEAD"
-        var code = try await (session.data(for: request).1 as? HTTPURLResponse)?.statusCode ?? 0
+        var code = try await (session.data(for: request, delegate: head).1 as? HTTPURLResponse)?.statusCode ?? 0
         if code != endpoint.expected {
             start = .now
-            let (body, response) = try await session.bytes(from: url)
+            deciding = Recorder()
+            let (body, response) = try await session.bytes(from: url, delegate: deciding)
             body.task.cancel()
             code = (response as? HTTPURLResponse)?.statusCode ?? 0
         }
         let ms = Int((ContinuousClock.now - start) / .milliseconds(1))
-        return code == endpoint.expected ? .up(code: code, ms: ms) : .down("HTTP \(code)")
+        var trace = deciding.trace ?? head.trace  // a cancelled GET can report its metrics after we return
+        trace?.certExpires = deciding.certExpires ?? head.certExpires
+        return (code == endpoint.expected ? .up(code: code, ms: ms) : .down("HTTP \(code)"), trace)
     } catch {
-        return .down(error.localizedDescription)
+        return (.down(error.localizedDescription), nil)
     }
 }
+
+/// A run of failed checks long enough to count as down. `end` is nil while it lasts.
+struct Incident: Equatable {
+    var start: UInt32
+    var end: UInt32?
+}
+
+/// Outages in the history, by the same rule as the alerts: `failureThreshold` failed checks in a row.
+func incidents(_ samples: [Sample]) -> [Incident] {
+    var out: [Incident] = [], run = 0, first: UInt32 = 0
+    for sample in samples {
+        if sample.ms < 0 {
+            if run == 0 { first = sample.t }
+            run += 1
+            if run == failureThreshold { out.append(Incident(start: first)) }
+        } else {
+            if run >= failureThreshold { out[out.count - 1].end = sample.t }
+            run = 0
+        }
+    }
+    return out
+}
+
+/// Days until a certificate expires at which Upbar warns.
+let certWarningDays = 14
 
 /// Trims whitespace and adds https:// when the scheme is missing, so pasted URLs just work.
 func normalizeURL(_ text: String) -> String {
@@ -122,6 +207,11 @@ final class Store {
     /// The dev build (`swift run`, tests) keeps its own file, so it never touches the real history.
     static let historyFile = (isApp ? URL.applicationSupportDirectory : URL.temporaryDirectory).appending(path: "Upbar/history.plist")
     private(set) var downSince: [UUID: Date] = [:]
+    /// The last request of each endpoint, for the waterfall. In memory; the next check refreshes it.
+    private(set) var traces: [UUID: Trace] = [:]
+    /// Known only after a new TLS connection, so it is kept across checks that reuse a connection.
+    private(set) var certExpiry: [UUID: Date] = [:]
+    private var certWarned: Set<UUID> = []
     /// One entry per check round, newest last. Drives the menu bar icon.
     private(set) var rounds: [Round] = []
     private var streak: [UUID: Int] = [:]
@@ -180,14 +270,16 @@ final class Store {
         defer { checking = false }
         let snapshot = endpoints
         // ponytail: all probes at once; fine for tens of endpoints, cap concurrency if someone watches hundreds.
-        let results = await withTaskGroup(of: (UUID, Health).self) { group in
+        let probes = await withTaskGroup(of: (UUID, (Health, Trace?)).self) { group in
             for endpoint in snapshot { group.addTask { (endpoint.id, await probe(endpoint)) } }
-            var out: [UUID: Health] = [:]
+            var out: [UUID: (Health, Trace?)] = [:]
             for await (id, result) in group { out[id] = result }
             return out
         }
+        let results = probes.mapValues(\.0)
         for endpoint in snapshot {
             guard let result = results[endpoint.id], endpoints.contains(endpoint) else { continue }
+            observe(endpoint, probes[endpoint.id]?.1)
             record(endpoint.id, result)
             let before = health[endpoint.id] ?? .unknown
             let (after, count) = step(before, streak: streak[endpoint.id, default: 0], probe: result)
@@ -207,9 +299,10 @@ final class Store {
         guard old?.url != endpoint.url || old?.expected != endpoint.expected else { return }  // a rename keeps its history
         forget(endpoint.id)
         Task {  // show it right away, without waiting for the next round
-            let result = await probe(endpoint)
+            let (result, trace) = await probe(endpoint)
             guard endpoints.contains(endpoint) else { return }
             health[endpoint.id] = result
+            observe(endpoint, trace)
             record(endpoint.id, result)
         }
     }
@@ -244,8 +337,21 @@ final class Store {
         try? data.write(to: Self.historyFile, options: .atomic)
     }
 
+    /// Keeps the trace and the certificate date, and warns once per launch when the certificate expires soon.
+    private func observe(_ endpoint: Endpoint, _ trace: Trace?) {
+        guard let trace else { return }
+        traces[endpoint.id] = trace
+        guard let expires = trace.certExpires else { return }
+        certExpiry[endpoint.id] = expires
+        let days = Int(expires.timeIntervalSinceNow / 86400)
+        if days < certWarningDays, certWarned.insert(endpoint.id).inserted {
+            notify("\(endpoint.name): " + (days < 0 ? "certificate expired" : "certificate expires in \(days) days"), site(endpoint.url))
+        }
+    }
+
     private func forget(_ id: UUID) {
-        (health[id], streak[id], samples[id], downSince[id]) = (nil, nil, nil, nil)
+        (health[id], streak[id], samples[id], downSince[id], traces[id], certExpiry[id]) = (nil, nil, nil, nil, nil, nil)
+        certWarned.remove(id)
     }
 
     var launchAtLogin = SMAppService.mainApp.status == .enabled {
@@ -359,7 +465,8 @@ struct Popover: View {
         Group {
             if let endpoint = editing {
                 let isNew = !store.endpoints.contains { $0.id == endpoint.id }
-                Editor(endpoint: endpoint, isNew: isNew, samples: store.samples[endpoint.id] ?? []) { action in
+                Editor(endpoint: endpoint, isNew: isNew, samples: store.samples[endpoint.id] ?? [],
+                       trace: store.traces[endpoint.id], certExpires: store.certExpiry[endpoint.id]) { action in
                     switch action {
                     case .save(let saved): store.save(saved)
                     case .delete: store.delete(endpoint)
@@ -466,7 +573,8 @@ struct Popover: View {
                             if !collapsed.contains(group.site) {
                                 ForEach(group.endpoints) { endpoint in
                                     Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
-                                        history: store.history(endpoint.id), downSince: store.downSince[endpoint.id]) { editing = endpoint }
+                                        history: store.history(endpoint.id), downSince: store.downSince[endpoint.id],
+                                        certExpires: store.certExpiry[endpoint.id]) { editing = endpoint }
                                         .padding(.leading, 24)  // indent under the website header
                                         .contextMenu {
                                             Button("Edit…") { editing = endpoint }
@@ -662,6 +770,7 @@ struct Row: View {
     let health: Health
     let history: [Int?]
     let downSince: Date?
+    let certExpires: Date?
     let edit: () -> Void
     @State private var hovering = false
 
@@ -674,7 +783,7 @@ struct Row: View {
                         .shadow(color: color.opacity(health.isDown ? 0.9 : 0.5), radius: 3)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(endpoint.name).lineLimit(1)
-                        detail.font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
+                        detail.font(.caption).foregroundStyle(health.isDown ? .red : certDays != nil ? .orange : .secondary).lineLimit(1)
                     }
                     Spacer(minLength: 8)
                     VStack(alignment: .trailing, spacing: 3) {
@@ -708,8 +817,18 @@ struct Row: View {
         .onHover { hovering = $0 }
     }
 
+    /// Days left on the certificate, only when it is close to expiry.
+    private var certDays: Int? {
+        guard let certExpires else { return nil }
+        let days = Int(certExpires.timeIntervalSinceNow / 86400)
+        return days < certWarningDays ? days : nil
+    }
+
     private var detail: Text {
-        guard case .down(let reason) = health else { return Text(endpoint.url.replacing(/^https?:\/\//, with: "")) }
+        guard case .down(let reason) = health else { 
+            if let certDays { return Text(certDays < 0 ? "Certificate expired" : "Certificate expires in \(certDays) days") }
+            return Text(endpoint.url.replacing(/^https?:\/\//, with: ""))
+        }
         guard let downSince else { return Text(reason) }
         let minutes = Int(-downSince.timeIntervalSinceNow / 60)
         return Text("\(reason) · " + (minutes < 1 ? "just now" : minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"))
@@ -749,10 +868,13 @@ struct Editor: View {
     @State var endpoint: Endpoint
     let isNew: Bool
     let samples: [Sample]
+    let trace: Trace?
+    let certExpires: Date?
     let done: (Action) -> Void
     @FocusState private var urlFocused: Bool
     @State private var confirmDelete = false
     @State private var testResult: Health?
+    @State private var testTrace: Trace?
     @State private var testing = false
 
     private var url: URL? {
@@ -807,7 +929,28 @@ struct Editor: View {
                          : "Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
                         .foregroundStyle(!(100...599).contains(endpoint.expected) ? .red : .secondary)
                 }
+                if let shown = testTrace ?? trace {
+                    Section("Last request") {
+                        if shown.reused {
+                            LabeledContent("Server", value: "\(shown.server) ms").monospacedDigit()
+                        } else {
+                            Waterfall(trace: shown)
+                        }
+                        LabeledContent("Connection") {
+                            Text([shown.proto, shown.tlsVersion, shown.address, shown.reused ? "reused" : nil].compactMap { $0 }.joined(separator: " · "))
+                                .textSelection(.enabled)
+                        }
+                        if let expires = shown.certExpires ?? certExpires {
+                            let days = Int(expires.timeIntervalSinceNow / 86400)
+                            LabeledContent("Certificate") {
+                                Text("\(expires.formatted(date: .abbreviated, time: .omitted)) · \(days) days")
+                                    .foregroundStyle(days < 0 ? .red : days < certWarningDays ? .orange : .secondary)
+                            }
+                        }
+                    }
+                }
                 if let stats = summarize(samples) {
+                    let outages = incidents(samples)
                     Section {
                         HStack(spacing: 8) {
                             Tile(label: "Uptime", value: String(format: "%.2f%%", stats.uptime * 100), tint: stats.uptime < 0.99 ? .orange : .green)
@@ -816,6 +959,10 @@ struct Editor: View {
                             Tile(label: "p99", value: stats.p99.map { "\($0) ms" } ?? "–")
                         }
                         ResponseChart(buckets: buckets(samples))
+                        LabeledContent("Incidents") {
+                            Text(incidentSummary(outages)).monospacedDigit()
+                                .foregroundStyle(outages.isEmpty ? Color.secondary : .orange)
+                        }
                     } header: {
                         Text("Last 24 hours")
                     } footer: {
@@ -838,7 +985,7 @@ struct Editor: View {
         }
         .onAppear { urlFocused = true }
         .task { if !isNew { await test() } }  // show the current state of an existing endpoint right away
-        .onChange(of: endpoint.url) { testResult = nil }
+        .onChange(of: endpoint.url) { (testResult, testTrace) = (nil, nil) }
         .onChange(of: endpoint.expected) { testResult = nil }
     }
 
@@ -854,7 +1001,7 @@ struct Editor: View {
 
     private func test() async {
         testing = true
-        testResult = await probe(saved)
+        (testResult, testTrace) = await probe(saved)
         testing = false
     }
 }
@@ -923,5 +1070,54 @@ struct ResponseChart: View {
         .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
         .frame(height: 90)
         .accessibilityLabel("Response times over the last 24 hours")
+    }
+}
+
+/// "None", or the count, the mean time to recovery and when the last one started.
+func incidentSummary(_ outages: [Incident]) -> String {
+    guard let last = outages.last else { return "None" }
+    let resolved = outages.compactMap { incident in incident.end.map { Int($0 - incident.start) } }
+    let mttr = resolved.isEmpty ? nil : resolved.reduce(0, +) / resolved.count
+    let ago = Date(timeIntervalSince1970: TimeInterval(last.start)).formatted(.relative(presentation: .named))
+    return "\(outages.count) · " + (last.end == nil ? "ongoing" : "MTTR \(duration(mttr ?? 0))") + " · \(ago)"
+}
+
+/// 45s, 4m, 1h 5m.
+func duration(_ seconds: Int) -> String {
+    seconds < 60 ? "\(seconds)s" : seconds < 3600 ? "\(seconds / 60)m" : "\(seconds / 3600)h \(seconds % 3600 / 60)m"
+}
+
+/// DNS, connect, TLS and server time of one request as stacked bars, like a browser's network waterfall.
+struct Waterfall: View {
+    let trace: Trace
+
+    var body: some View {
+        let phases = [("DNS", trace.dns, Color.teal), ("Connect", trace.connect, .blue),
+                      ("TLS", trace.tls, .purple), ("Server", trace.server, .green)]
+        let total = max(phases.map(\.1).reduce(0, +), 1)
+        VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    ForEach(phases, id: \.0) { name, ms, color in
+                        Rectangle().fill(color.gradient).frame(width: geometry.size.width * CGFloat(ms) / CGFloat(total))
+                    }
+                }
+                .clipShape(.capsule)
+            }
+            .frame(height: 8)
+            HStack(spacing: 10) {
+                ForEach(phases, id: \.0) { name, ms, color in
+                    HStack(spacing: 4) {
+                        Circle().fill(color).frame(width: 6, height: 6)
+                        Text("\(name) \(ms)")
+                    }
+                }
+                Spacer(minLength: 0)
+                Text("\(total) ms").fontWeight(.semibold)
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

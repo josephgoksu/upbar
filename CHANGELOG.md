@@ -6,6 +6,9 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ### Added
 
+- Request traces: the editor shows the DNS, connect, TLS and server time of the last request, with the protocol, TLS version and IP address.
+- Upbar shows when the TLS certificate expires and sends a notification 14 days before.
+- The editor counts the incidents of the last 24 hours and shows the mean time to recovery (MTTR).
 - The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
 - The editor has a **Test now** button. It shows the status code and the response time of the endpoint.
 - Upbar keeps the check results of the last 24 hours on disk. The editor shows the uptime and the p50, p95 and p99 response times.

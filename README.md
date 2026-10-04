@@ -23,6 +23,9 @@ Features:
 - Each endpoint shows the response times of its last 30 checks.
 - You can set the HTTP status code that each endpoint must return.
 - Upbar shows the uptime and the p50, p95 and p99 response times of the last 24 hours. A chart shows the response times.
+- Upbar shows the time of each phase of a request: DNS, connect, TLS and server.
+- Upbar shows when the TLS certificate expires. It sends a notification 14 days before.
+- Upbar counts the incidents of the last 24 hours and the mean time to recovery (MTTR).
 - Upbar uses a small quantity of memory, CPU and network. Refer to [section 6](#6-resource-use).
 - Upbar does not collect data. Refer to [section 7](#7-privacy).
 - Upbar can receive events from your deploys, CI jobs and scripts. Refer to [section 9](#9-events).
@@ -102,6 +105,10 @@ Result: Upbar checks the endpoint immediately. Then it checks the endpoint every
 
 When the editor opens, Upbar tests the endpoint. The **Test** row shows the result. The **Last 24 hours** section shows the uptime, the p50, p95 and p99 response times, and the number of checks. A chart shows the response time. Red lines show failed checks.
 
+The **Last request** section shows the request phases, the protocol, the TLS version and the IP address of the server. It also shows the expiry date of the certificate. If the request used an open connection, Upbar shows only the server time and the word **reused**.
+
+The **Incidents** row shows the number of outages, the MTTR and the time of the last outage. An outage is 2 failed checks in a row, the same rule as the notifications.
+
 > [!NOTE]
 > If you change only the name, Upbar keeps the check history. If you change the URL or the expected status code, Upbar removes the check history.
 
@@ -171,6 +178,7 @@ Result: Upbar hides the endpoints of that website. Click the name again to show 
 | Red dot and red text | The endpoint is down. The text shows the cause and the time since the endpoint went down. |
 | Gray dot | Upbar has not checked the endpoint yet. |
 | Orange response time | The response time is more than 1 second. |
+| Orange text **Certificate expires in 9 days** | The TLS certificate expires in less than 14 days. |
 | Red bar in the history | One check failed. |
 
 ### 5.3 Window header

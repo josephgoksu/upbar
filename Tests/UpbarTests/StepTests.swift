@@ -45,3 +45,12 @@ import Testing
     #expect(result.map(\.ms) == [200, nil])
     #expect(result.map(\.failures) == [1, 1])
 }
+
+@Test func incidentsFollowTheAlertRule() {
+    let ok = { (t: UInt32) in Sample(t: t, ms: 100) }, fail = { (t: UInt32) in Sample(t: t, ms: -1) }
+    // A single failure is a blip, not an incident. Two in a row is one, resolved by the next success.
+    let samples = [ok(0), fail(60), ok(120), fail(180), fail(240), fail(300), ok(360), fail(420), fail(480)]
+    #expect(incidents(samples) == [Incident(start: 180, end: 360), Incident(start: 420, end: nil)])
+    #expect(incidentSummary([Incident(start: 180, end: 360)]).hasPrefix("1 · MTTR 3m"))
+    #expect(incidentSummary([]) == "None")
+}
