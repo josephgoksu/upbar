@@ -36,11 +36,11 @@ rm -rf ~/Applications/Upbar.app && defaults delete com.josephgoksu.upbar
 
 | Do | How |
 |---|---|
-| Add a URL | **+ Add** (⌘N): enter a name, a URL, and the expected status |
-| Edit or delete one | Right-click the row |
+| Add a URL | **+ Add** (⌘N), paste the URL, Save. The name and expected status (200) are optional |
+| Edit or delete one | Hover a row and click the pencil, or right-click it |
 | Open it in the browser | Click the row |
 | Check now | ⟳ (⌘R) |
-| Start at login | The **Open at login** checkbox |
+| Start at login | ⋯ → **Open at Login** |
 
 Each check is a `HEAD` request. If the status isn't the one you expect, Upbar confirms with a `GET` before counting it as a failure. An endpoint counts as **down** after 2 failed checks in a row: a timeout (10s), a connection error, or any status other than the one you expect. Redirects aren't followed, so `301` means exactly 301.
 
