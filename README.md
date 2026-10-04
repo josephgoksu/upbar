@@ -22,7 +22,7 @@ Features:
 - The menu bar icon shows the response times of the last 7 checks.
 - Each endpoint shows the response times of its last 30 checks.
 - You can set the HTTP status code that each endpoint must return.
-- Upbar shows the uptime and the p50, p95 and p99 response times of the last 24 hours.
+- Upbar shows the uptime and the p50, p95 and p99 response times of the last 24 hours. A chart shows the response times.
 - Upbar uses a small quantity of memory, CPU and network. Refer to [section 6](#6-resource-use).
 - Upbar does not collect data. Refer to [section 7](#7-privacy).
 - Upbar can receive events from your deploys, CI jobs and scripts. Refer to [section 9](#9-events).
@@ -80,7 +80,7 @@ When Upbar starts for the first time, macOS shows a notification request.
 ### 4.2 Add an endpoint
 
 1. Open the Upbar window.
-2. Click **+ Add**. The keyboard shortcut is ⌘N.
+2. Click **+ Add Endpoint**. The keyboard shortcut is ⌘N.
 3. In the **URL** field, type or paste the URL of the endpoint.
 4. Optional: In the **Name** field, type a name. If you do not type a name, Upbar uses the host name.
 5. Optional: In the **Expect** field, type the HTTP status code that the endpoint must return. The default is 200.
@@ -100,7 +100,7 @@ Result: Upbar checks the endpoint immediately. Then it checks the endpoint every
 4. Change the URL, the name or the expected status code.
 5. Click **Save**.
 
-When the editor opens, Upbar tests the endpoint. The **Test** row shows the result. The **Last 24 hours** section shows the uptime, the p50, p95 and p99 response times, and the number of checks.
+When the editor opens, Upbar tests the endpoint. The **Test** row shows the result. The **Last 24 hours** section shows the uptime, the p50, p95 and p99 response times, and the number of checks. A chart shows the response time. Red lines show failed checks.
 
 > [!NOTE]
 > If you change only the name, Upbar keeps the check history. If you change the URL or the expected status code, Upbar removes the check history.
@@ -164,7 +164,8 @@ Result: Upbar hides the endpoints of that website. Click the name again to show 
 
 | Indication | Meaning |
 |---|---|
-| Website name and **2/2 up** | All endpoints of the website are up. |
+| Website name and green **2/2 up** | All endpoints of the website are up. |
+| Website name and gray **1/2 up** | Upbar has not completed the checks of 1 endpoint. |
 | Website name and red **1 down** | 1 endpoint of the website is down. Upbar shows this website first. |
 | Green dot | The endpoint is up. |
 | Red dot and red text | The endpoint is down. The text shows the cause and the time since the endpoint went down. |
@@ -176,8 +177,8 @@ Result: Upbar hides the endpoints of that website. Click the name again to show 
 
 | Indication | Meaning |
 |---|---|
-| **All systems operational** | All endpoints are up. |
-| **2 of 6 down** | 2 endpoints are down. |
+| Green ring and **All systems up** | All endpoints are up. The ring shows the part of the endpoints that are up. |
+| Red tint and **2 of 6 down** | 2 endpoints are down. The green part of the ring shows the endpoints that are up. |
 | **Offline** | The Mac has no network connection. Upbar stops all checks until the connection is available again. |
 
 ## 6. Resource use

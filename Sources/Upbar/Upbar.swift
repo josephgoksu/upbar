@@ -1,5 +1,6 @@
 import Network
 import ServiceManagement
+import Charts
 import SwiftUI
 import UserNotifications
 
@@ -319,6 +320,28 @@ struct Round: Equatable {
     return image
 }
 
+/// The popover's accent: green when all is well, red when something is down.
+enum Mood {
+    case calm, alarm, offline, empty
+
+    var tint: Color {
+        switch self {
+        case .calm: .green
+        case .alarm: .red
+        case .offline: .gray
+        case .empty: .indigo
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .calm: "checkmark"
+        case .alarm: "exclamationmark"
+        case .offline: "wifi.slash"
+        case .empty: "plus"
+        }
+    }
+}
+
 struct Popover: View {
     @Environment(Store.self) private var store
     @Environment(Receiver.self) private var receiver
@@ -328,11 +351,15 @@ struct Popover: View {
 
     enum Tab { case endpoints, events }
 
+    private var mood: Mood {
+        !store.online ? .offline : store.downCount > 0 ? .alarm : store.endpoints.isEmpty ? .empty : .calm
+    }
+
     var body: some View {
         Group {
             if let endpoint = editing {
                 let isNew = !store.endpoints.contains { $0.id == endpoint.id }
-                Editor(endpoint: endpoint, isNew: isNew, stats: store.stats(endpoint.id)) { action in
+                Editor(endpoint: endpoint, isNew: isNew, samples: store.samples[endpoint.id] ?? []) { action in
                     switch action {
                     case .save(let saved): store.save(saved)
                     case .delete: store.delete(endpoint)
@@ -343,60 +370,77 @@ struct Popover: View {
                 .id(endpoint.id)
             } else {
                 VStack(spacing: 0) {
-                    header
-                    Picker("View", selection: $tab) {
-                        Text("Endpoints").tag(Tab.endpoints)
-                        Text(receiver.unread > 0 && tab != .events ? "Events (\(receiver.unread))" : "Events").tag(Tab.events)
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding([.horizontal, .bottom], 12)
-                    Divider()
+                    hero
+                    TabBar(tab: $tab, unread: receiver.unread).padding(.horizontal, 14).padding(.bottom, 10)
                     // Both tabs stay in the layout, so the window keeps one height and never floats when you switch.
                     ZStack(alignment: .top) {
                         list.frame(maxHeight: .infinity, alignment: .top).tabPane(tab == .endpoints)
                         EventList().frame(maxHeight: .infinity).tabPane(tab == .events)
                     }
-                    Divider()
                     footer
                 }
                 .onChange(of: tab) { if tab == .events { receiver.unread = 0 } }
                 .onChange(of: receiver.unread) { if tab == .events { receiver.unread = 0 } }
             }
         }
-        .frame(width: 340)
+        .frame(width: 360)
         .fixedSize(horizontal: false, vertical: true)  // the window fits its content, list or editor
-        .background(.thickMaterial)  // readable over any wallpaper or window behind the glass
+        .background {
+            // A solid material keeps text readable over anything; the tint wash carries the status.
+            ZStack(alignment: .top) {
+                Rectangle().fill(.thickMaterial)
+                LinearGradient(colors: [mood.tint.opacity(0.28), mood.tint.opacity(0)], startPoint: .top, endPoint: .center)
+            }
+            .animation(.smooth, value: mood)
+        }
     }
 
-    private var header: some View {
-        let down = store.downCount > 0
-        let title = !store.online ? "Offline" : down ? "\(store.downCount) of \(store.endpoints.count) down"
-            : store.endpoints.isEmpty ? "Upbar" : store.lastCheck == nil ? "Checking…" : "All systems operational"
-        return HStack(spacing: 10) {
-            Image(systemName: !store.online ? "wifi.slash" : down ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.title2)
-                .foregroundStyle(!store.online ? Color.secondary : down ? .red : .green)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                if !store.online {
-                    Text("Checks paused until you're back online").font(.caption).foregroundStyle(.secondary)
-                } else if let last = store.lastCheck {
-                    Text("Checked \(last, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if store.checking {
-                ProgressView().controlSize(.small).frame(width: 16, height: 16)
-            } else {
-                Button("Check now", systemImage: "arrow.clockwise") { Task { await store.check() } }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .keyboardShortcut("r")
-                    .help("Check now (⌘R)")
-            }
+    private var hero: some View {
+        let up = store.endpoints.count { if case .up = store.health[$0.id] { true } else { false } }
+        let title = switch mood {
+        case .offline: "Offline"
+        case .alarm: "\(store.downCount) of \(store.endpoints.count) down"
+        case .empty: "Welcome to Upbar"
+        case .calm: store.lastCheck == nil ? "Checking…" : "All systems up"
         }
-        .padding(12)
+        return HStack(spacing: 14) {
+            StatusRing(progress: store.endpoints.isEmpty ? 1 : Double(up) / Double(store.endpoints.count), mood: mood)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(.title3, design: .rounded, weight: .bold))
+                Group {
+                    if mood == .offline {
+                        Text("Checks pause until you're back online")
+                    } else if mood == .empty {
+                        Text("Uptime checks in your menu bar")
+                    } else if let last = store.lastCheck {
+                        Text("\(up) up · checked \(last, style: .relative) ago")
+                    }
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            if mood != .empty { refresh }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
+        .padding(.bottom, 14)
+    }
+
+    private var refresh: some View {
+        Button { Task { await store.check() } } label: {
+            Group {
+                if store.checking { ProgressView().controlSize(.small) }
+                else { Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .semibold)) }
+            }
+            .frame(width: 30, height: 30)
+            .background(.regularMaterial, in: .circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(store.checking)
+        .keyboardShortcut("r")
+        .help("Check now (⌘R)")
+        .accessibilityLabel("Check now")
     }
 
     @ViewBuilder private var list: some View {
@@ -410,27 +454,34 @@ struct Popover: View {
             }
         } else {
             ScrollView {
-                VStack(spacing: 0) {
+                VStack(spacing: 8) {
                     ForEach(store.groups, id: \.site) { group in
-                        GroupHeader(site: group.site, total: group.endpoints.count,
-                                    down: group.endpoints.count { store.health[$0.id]?.isDown == true },
-                                    collapsed: collapsed.contains(group.site)) {
-                            withAnimation(.snappy) { collapsed.formSymmetricDifference([group.site]) }
-                        }
-                        if !collapsed.contains(group.site) {
-                            ForEach(group.endpoints) { endpoint in
-                                Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
-                                    history: store.history(endpoint.id), downSince: store.downSince[endpoint.id]) { editing = endpoint }
-                                    .padding(.leading, 14)  // indent under the website header
-                                    .contextMenu {
-                                        Button("Edit…") { editing = endpoint }
-                                        Button("Delete", role: .destructive) { store.delete(endpoint) }
-                                    }
+                        let down = group.endpoints.count { store.health[$0.id]?.isDown == true }
+                        VStack(spacing: 0) {
+                            GroupHeader(site: group.site, total: group.endpoints.count, down: down,
+                                        up: group.endpoints.count { if case .up = store.health[$0.id] { true } else { false } },
+                                        collapsed: collapsed.contains(group.site)) {
+                                withAnimation(.snappy) { collapsed.formSymmetricDifference([group.site]) }
+                            }
+                            if !collapsed.contains(group.site) {
+                                ForEach(group.endpoints) { endpoint in
+                                    Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
+                                        history: store.history(endpoint.id), downSince: store.downSince[endpoint.id]) { editing = endpoint }
+                                        .padding(.leading, 24)  // indent under the website header
+                                        .contextMenu {
+                                            Button("Edit…") { editing = endpoint }
+                                            Button("Delete", role: .destructive) { store.delete(endpoint) }
+                                        }
+                                }
                             }
                         }
+                        .padding(4)
+                        .background(Color.primary.opacity(0.045), in: .rect(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(down > 0 ? Color.red.opacity(0.35) : Color.primary.opacity(0.06)))
                     }
                 }
-                .padding(6)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 4)
             }
             .frame(maxHeight: 420)
             .fixedSize(horizontal: false, vertical: true)
@@ -441,12 +492,17 @@ struct Popover: View {
         @Bindable var store = store
         @Bindable var receiver = receiver
         return HStack {
-            if tab == .endpoints {
-                Button("Add", systemImage: "plus") { editing = Endpoint() }
-                    .keyboardShortcut("n")
-                    .help("Add endpoint (⌘N)")
+            if tab == .endpoints, !store.endpoints.isEmpty {
+                Button { editing = Endpoint() } label: {
+                    Label("Add Endpoint", systemImage: "plus").font(.callout.weight(.medium))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(.regularMaterial, in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .keyboardShortcut("n")
+                .help("Add endpoint (⌘N)")
             } else if !receiver.events.isEmpty {
-                Button("Clear", systemImage: "trash") { receiver.clear() }
+                Button("Clear", systemImage: "trash") { receiver.clear() }.buttonStyle(.borderless)
             }
             Spacer()
             Menu {
@@ -463,14 +519,101 @@ struct Popover: View {
                 Divider()
                 Button("Quit Upbar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: "ellipsis")
+                    .frame(width: 26, height: 26)
+                    .background(.regularMaterial, in: .circle)
             }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+}
+
+/// A ring that fills with the share of endpoints that are up, with the status glyph inside.
+struct StatusRing: View {
+    let progress: Double
+    let mood: Mood
+    private var arc: Color { mood == .alarm ? .green : mood.tint }
+
+    var body: some View {
+        ZStack {
+            // The arc is the share that is up; in an outage the red track shows the rest.
+            Circle().stroke(mood.tint.opacity(mood == .alarm ? 0.55 : 0.18), lineWidth: 5)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(AngularGradient(colors: [arc.opacity(0.6), arc], center: .center),
+                        style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            Image(systemName: mood.symbol)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(mood.tint)
+        }
+        .frame(width: 46, height: 46)
+        .animation(.smooth, value: progress)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Two pill tabs with a sliding selection, like an iOS segmented control.
+struct TabBar: View {
+    @Binding var tab: Popover.Tab
+    let unread: Int
+    @Namespace private var pill
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(spacing: 2) {
+            item("Endpoints", .endpoints, badge: 0)
+            item("Events", .events, badge: unread)
+        }
+        .padding(3)
+        .background(Color.primary.opacity(0.06), in: .capsule)
+    }
+
+    private func item(_ title: String, _ value: Popover.Tab, badge: Int) -> some View {
+        Button { withAnimation(.snappy(duration: 0.25)) { tab = value } } label: {
+            HStack(spacing: 5) {
+                Text(title)
+                if badge > 0 {
+                    Text("\(badge)").font(.caption2.bold()).foregroundStyle(.white)
+                        .padding(.horizontal, 5).background(.red, in: .capsule)
+                }
+            }
+            .font(.callout.weight(tab == value ? .semibold : .regular))
+            .foregroundStyle(tab == value ? .primary : .secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 5)
+            .background {
+                if tab == value {
+                    Capsule().fill(scheme == .dark ? Color.white.opacity(0.16) : .white).shadow(color: .black.opacity(0.12), radius: 2, y: 1)
+                        .matchedGeometryEffect(id: "pill", in: pill)
+                }
+            }
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(tab == value ? .isSelected : [])
+    }
+}
+
+/// A colored letter tile for a website. ponytail: no favicons, they would call the site or a third party.
+struct Monogram: View {
+    let site: String
+
+    var body: some View {
+        // A stable hue per name; String.hashValue changes every launch.
+        let hue = Double(site.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) % 360 }) / 360
+        RoundedRectangle(cornerRadius: 6)
+            .fill(LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.95),
+                                          Color(hue: hue, saturation: 0.75, brightness: 0.7)],
+                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+            .overlay(Text(site.prefix(1).uppercased()).font(.system(size: 12, weight: .bold, design: .rounded)).foregroundStyle(.white))
+            .frame(width: 22, height: 22)
+            .accessibilityHidden(true)
     }
 }
 
@@ -479,25 +622,30 @@ struct GroupHeader: View {
     let site: String
     let total: Int
     let down: Int
+    let up: Int
     let collapsed: Bool
     let toggle: () -> Void
 
     var body: some View {
         Button(action: toggle) {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(collapsed ? 0 : 90))
-                Text(site).font(.subheadline.weight(.semibold))
+            HStack(spacing: 8) {
+                Monogram(site: site)
+                Text(site).font(.callout.weight(.semibold))
                 Spacer()
-                Text(down > 0 ? "\(down) down" : "\(total)/\(total) up")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(down > 0 ? .red : .secondary)
+                // Green only when every endpoint is up; one still checking keeps it grey.
+                let tint = down > 0 ? Color.red : up == total ? .green : .secondary
+                Text(down > 0 ? "\(down) down" : "\(up)/\(total) up")
+                    .font(.caption.weight(.medium).monospacedDigit())
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .background(tint.opacity(0.14), in: .capsule)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 8)
-            .padding(.bottom, 2)
+            .padding(6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -519,6 +667,7 @@ struct Row: View {
             Button { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } } label: {
                 HStack(spacing: 10) {
                     Circle().fill(color).frame(width: 8, height: 8)
+                        .shadow(color: color.opacity(health.isDown ? 0.9 : 0.5), radius: 3)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(endpoint.name).lineLimit(1)
                         detail.font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
@@ -551,7 +700,7 @@ struct Row: View {
         .padding(.leading, 8)
         .padding(.trailing, 4)
         .padding(.vertical, 6)
-        .background(hovering ? Color.primary.opacity(0.07) : .clear, in: .rect(cornerRadius: 6))
+        .background(hovering ? Color.primary.opacity(0.07) : .clear, in: .rect(cornerRadius: 8))
         .onHover { hovering = $0 }
     }
 
@@ -582,7 +731,7 @@ struct Sparkline: View {
         HStack(alignment: .bottom, spacing: 1) {
             ForEach(Array(history.enumerated()), id: \.offset) { _, ms in
                 Capsule()
-                    .fill(ms == nil ? Color.red : ms! > 1000 ? .orange : .secondary.opacity(0.5))
+                    .fill(ms == nil ? Color.red : ms! > 1000 ? .orange : .green.opacity(0.55))
                     .frame(width: 2, height: ms.map { min(14, max(2, 14 * CGFloat($0) / peak)) } ?? 14)
             }
         }
@@ -595,7 +744,7 @@ struct Editor: View {
 
     @State var endpoint: Endpoint
     let isNew: Bool
-    let stats: Stats?
+    let samples: [Sample]
     let done: (Action) -> Void
     @FocusState private var urlFocused: Bool
     @State private var confirmDelete = false
@@ -654,14 +803,19 @@ struct Editor: View {
                          : "Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
                         .foregroundStyle(!(100...599).contains(endpoint.expected) ? .red : .secondary)
                 }
-                if let stats {
-                    Section("Last 24 hours") {
-                        LabeledContent("Uptime", value: String(format: "%.2f%%", stats.uptime * 100))
-                        LabeledContent("p50 / p95 / p99") {
-                            Text([stats.p50, stats.p95, stats.p99].map { $0.map(String.init) ?? "–" }.joined(separator: " / ") + " ms")
-                                .monospacedDigit()
+                if let stats = summarize(samples) {
+                    Section {
+                        HStack(spacing: 8) {
+                            Tile(label: "Uptime", value: String(format: "%.2f%%", stats.uptime * 100), tint: stats.uptime < 0.99 ? .orange : .green)
+                            Tile(label: "p50", value: stats.p50.map { "\($0) ms" } ?? "–")
+                            Tile(label: "p95", value: stats.p95.map { "\($0) ms" } ?? "–")
+                            Tile(label: "p99", value: stats.p99.map { "\($0) ms" } ?? "–")
                         }
-                        LabeledContent("Checks", value: "\(stats.checks)")
+                        ResponseChart(buckets: buckets(samples))
+                    } header: {
+                        Text("Last 24 hours")
+                    } footer: {
+                        Text("\(stats.checks) checks. Red marks show failed checks.")
                     }
                 }
                 if !isNew {
@@ -705,5 +859,65 @@ extension View {
     /// Hides a tab without removing it, so it still counts toward the popover height.
     func tabPane(_ shown: Bool) -> some View {
         opacity(shown ? 1 : 0).allowsHitTesting(shown).accessibilityHidden(!shown)
+    }
+}
+
+struct Bucket: Equatable {
+    var start: Date
+    var ms: Int?  // median of the successful checks
+    var failures: Int
+}
+
+/// Folds samples into 15-minute buckets, so the chart draws at most 96 points for 24 hours.
+func buckets(_ samples: [Sample], minutes: UInt32 = 15) -> [Bucket] {
+    let width = minutes * 60
+    return Dictionary(grouping: samples) { $0.t / width }.map { key, group in
+        let times = group.filter { $0.ms >= 0 }.map { Int($0.ms) }.sorted()
+        return Bucket(start: Date(timeIntervalSince1970: TimeInterval(key * width)),
+                      ms: times.isEmpty ? nil : times[times.count / 2], failures: group.count - times.count)
+    }
+    .sorted { $0.start < $1.start }
+}
+
+struct Tile: View {
+    let label: String
+    let value: String
+    var tint: Color = .primary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(.caption2.weight(.medium)).foregroundStyle(.secondary)
+            Text(value).font(.system(.callout, design: .rounded, weight: .semibold).monospacedDigit())
+                .foregroundStyle(tint).lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 8))
+    }
+}
+
+struct ResponseChart: View {
+    let buckets: [Bucket]
+
+    var body: some View {
+        Chart {
+            ForEach(buckets, id: \.start) { bucket in
+                if let ms = bucket.ms {
+                    AreaMark(x: .value("Time", bucket.start), y: .value("ms", ms))
+                        .foregroundStyle(LinearGradient(colors: [.green.opacity(0.35), .green.opacity(0)], startPoint: .top, endPoint: .bottom))
+                        .interpolationMethod(.monotone)
+                    LineMark(x: .value("Time", bucket.start), y: .value("ms", ms))
+                        .foregroundStyle(.green)
+                        .interpolationMethod(.monotone)
+                }
+                if bucket.failures > 0 {
+                    RuleMark(x: .value("Time", bucket.start)).foregroundStyle(.red.opacity(0.6))
+                }
+            }
+        }
+        .chartXAxis { AxisMarks(values: .stride(by: .hour, count: 6)) { _ in AxisValueLabel(format: .dateTime.hour()) } }
+        .chartYAxis { AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) }
+        .frame(height: 90)
+        .accessibilityLabel("Response times over the last 24 hours")
     }
 }

@@ -238,10 +238,10 @@ struct EventList: View {
             } }
         } else {
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 6) {
                     ForEach(receiver.events) { EventRow(event: $0) }
                 }
-                .padding(6)
+                .padding(.horizontal, 12)
             }
             .frame(maxHeight: 420)
             .fixedSize(horizontal: false, vertical: true)
@@ -256,7 +256,11 @@ struct EventRow: View {
     var body: some View {
         Button { if let click = event.click, let url = URL(string: click) { NSWorkspace.shared.open(url) } } label: {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: symbol).foregroundStyle(color)
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(color)
+                    .frame(width: 26, height: 26)
+                    .background(color.opacity(0.15), in: .circle)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(event.title ?? event.message ?? "Event").lineLimit(1)
                     if event.title != nil, let message = event.message, !message.isEmpty {
@@ -266,10 +270,9 @@ struct EventRow: View {
                 Spacer(minLength: 8)
                 Text(event.time, style: .relative).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(8)
             .contentShape(Rectangle())
-            .background(hovering && event.click != nil ? Color.primary.opacity(0.07) : .clear, in: .rect(cornerRadius: 6))
+            .background(Color.primary.opacity(hovering && event.click != nil ? 0.08 : 0.045), in: .rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
@@ -277,9 +280,9 @@ struct EventRow: View {
 
     private var symbol: String {
         switch event.severity {
-        case .failure: "xmark.circle.fill"
-        case .success: "checkmark.circle.fill"
-        case .info: "bell.circle.fill"
+        case .failure: "xmark"
+        case .success: "checkmark"
+        case .info: "bell.fill"
         }
     }
 

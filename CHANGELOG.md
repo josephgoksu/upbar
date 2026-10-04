@@ -17,6 +17,7 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - The editor uses grouped sections and a title bar with **Cancel** and **Save**.
 - The window has a solid background and fits its content.
 - The Events tab and empty lists use native empty states. Switching tabs no longer leaves the window too tall.
+- New look: a status ring and tint in the header, pill tabs, website cards with letter tiles, and a 24-hour response time chart in the editor. Upbar has no new dependencies; the chart uses Swift Charts.
 - The response-time bars use 2 times the median as the full height. Thus, small changes are visible.
 
 ## [0.1.1] - 2026-10-04

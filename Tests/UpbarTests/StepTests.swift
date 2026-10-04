@@ -37,3 +37,11 @@ import Testing
     #expect(site("http://192.168.1.10:8080/health") == "192.168.1.10")
     #expect(site("http://localhost:3000") == "localhost")
 }
+
+@Test func chartBucketsTakeMedianAndCountFailures() {
+    let samples = [Sample(t: 0, ms: 100), Sample(t: 60, ms: 300), Sample(t: 120, ms: 200), Sample(t: 180, ms: -1),
+                   Sample(t: 900, ms: -1)]
+    let result = buckets(samples)
+    #expect(result.map(\.ms) == [200, nil])
+    #expect(result.map(\.failures) == [1, 1])
+}
