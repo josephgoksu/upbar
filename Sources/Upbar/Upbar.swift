@@ -45,7 +45,7 @@ func probe(_ endpoint: Endpoint) async -> Health {
         let (_, response) = try await session.data(from: url)
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
         let ms = Int((ContinuousClock.now - start) / .milliseconds(1))
-        return code == endpoint.expected ? .up(code: code, ms: ms) : .down("HTTP \(code), expected \(endpoint.expected)")
+        return code == endpoint.expected ? .up(code: code, ms: ms) : .down("HTTP \(code)")
     } catch {
         return .down(error.localizedDescription)
     }
@@ -59,6 +59,9 @@ final class Store {
     var endpoints: [Endpoint] { didSet { UserDefaults.standard.set(try? JSONEncoder().encode(endpoints), forKey: "endpoints") } }
     private(set) var health: [UUID: Health] = [:]
     private(set) var lastCheck: Date?
+    /// Last 30 raw response times, nil = failed check. Drives the sparkline.
+    private(set) var history: [UUID: [Int?]] = [:]
+    private(set) var downSince: [UUID: Date] = [:]
     private var streak: [UUID: Int] = [:]
     private var checking = false
 
@@ -90,24 +93,38 @@ final class Store {
         }
         for endpoint in snapshot {
             guard let result = results[endpoint.id], endpoints.contains(endpoint) else { continue }
+            record(endpoint.id, result)
             let before = health[endpoint.id] ?? .unknown
             let (after, count) = step(before, streak: streak[endpoint.id, default: 0], probe: result)
             (health[endpoint.id], streak[endpoint.id]) = (after, count)
-            if case .down(let reason) = after, !before.isDown { notify("\(endpoint.name) is down", reason) }
-            if before.isDown, case .up = after { notify("\(endpoint.name) is back up", endpoint.url) }
+            if case .down(let reason) = after, !before.isDown { downSince[endpoint.id] = .now; notify("\(endpoint.name) is down", reason) }
+            if before.isDown, case .up = after { downSince[endpoint.id] = nil; notify("\(endpoint.name) is back up", endpoint.url) }
         }
         lastCheck = .now
     }
 
     func save(_ endpoint: Endpoint) {
         if let i = endpoints.firstIndex(where: { $0.id == endpoint.id }) { endpoints[i] = endpoint } else { endpoints.append(endpoint) }
-        (health[endpoint.id], streak[endpoint.id]) = (nil, nil)
-        Task { health[endpoint.id] = await probe(endpoint) }  // show it right away, without waiting for the next round
+        forget(endpoint.id)
+        Task {  // show it right away, without waiting for the next round
+            let result = await probe(endpoint)
+            health[endpoint.id] = result
+            record(endpoint.id, result)
+        }
     }
 
     func delete(_ endpoint: Endpoint) {
         endpoints.removeAll { $0.id == endpoint.id }
-        (health[endpoint.id], streak[endpoint.id]) = (nil, nil)
+        forget(endpoint.id)
+    }
+
+    private func record(_ id: UUID, _ result: Health) {
+        let ms: Int? = if case .up(_, let ms) = result { ms } else { nil }
+        history[id, default: []] = (history[id, default: []] + [ms]).suffix(30)
+    }
+
+    private func forget(_ id: UUID) {
+        (health[id], streak[id], history[id], downSince[id]) = (nil, nil, nil, nil)
     }
 
     var launchAtLogin: Bool {
@@ -133,7 +150,12 @@ struct Upbar: App {
         MenuBarExtra {
             Popover().environment(store)
         } label: {
-            if store.downCount > 0 { Image(nsImage: alertIcon) } else { Image(systemName: "checkmark.circle") }
+            if store.downCount > 0 {
+                Image(nsImage: alertIcon)
+                Text("\(store.downCount)")
+            } else {
+                Image(systemName: "checkmark.circle")
+            }
         }
         .menuBarExtraStyle(.window)
     }
@@ -168,17 +190,19 @@ struct Popover: View {
                 }
             }
         }
-        .frame(width: 320)
+        .frame(width: 340)
     }
 
     private var header: some View {
         let down = store.downCount > 0
+        let title = down ? "\(store.downCount) of \(store.endpoints.count) down"
+            : store.endpoints.isEmpty ? "Upbar" : store.lastCheck == nil ? "Checking…" : "All systems operational"
         return HStack(spacing: 10) {
             Image(systemName: down ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .font(.title2)
                 .foregroundStyle(down ? .red : .green)
             VStack(alignment: .leading, spacing: 2) {
-                Text(down ? "\(store.downCount) of \(store.endpoints.count) down" : store.endpoints.isEmpty ? "Upbar" : "All systems operational").font(.headline)
+                Text(title).font(.headline)
                 if let last = store.lastCheck {
                     Text("Checked \(last, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
                 }
@@ -194,7 +218,7 @@ struct Popover: View {
 
     @ViewBuilder private var list: some View {
         if store.endpoints.isEmpty {
-            Text("Nothing to watch yet.\nAdd a URL and Upbar checks it every minute.")
+            Text("Nothing to watch yet.\nPaste a URL and Upbar checks it every minute.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
@@ -203,7 +227,8 @@ struct Popover: View {
             ScrollView {
                 VStack(spacing: 0) {
                     ForEach(store.sorted) { endpoint in
-                        Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown)
+                        Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
+                            history: store.history[endpoint.id] ?? [], downSince: store.downSince[endpoint.id]) { editing = endpoint }
                             .contextMenu {
                                 Button("Edit…") { editing = endpoint }
                                 Button("Delete", role: .destructive) { store.delete(endpoint) }
@@ -212,7 +237,7 @@ struct Popover: View {
                 }
                 .padding(6)
             }
-            .frame(maxHeight: 400)
+            .frame(maxHeight: 420)
             .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -222,8 +247,15 @@ struct Popover: View {
         return HStack {
             Button("Add", systemImage: "plus") { editing = Endpoint() }.keyboardShortcut("n")
             Spacer()
-            Toggle("Open at login", isOn: $store.launchAtLogin).toggleStyle(.checkbox).disabled(!isApp)
-            Button("Quit") { NSApp.terminate(nil) }.keyboardShortcut("q")
+            Menu {
+                Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)
+                Divider()
+                Button("Quit Upbar") { NSApp.terminate(nil) }.keyboardShortcut("q")
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
@@ -234,6 +266,9 @@ struct Popover: View {
 struct Row: View {
     let endpoint: Endpoint
     let health: Health
+    let history: [Int?]
+    let downSince: Date?
+    let edit: () -> Void
     @State private var hovering = false
 
     var body: some View {
@@ -242,11 +277,19 @@ struct Row: View {
                 Circle().fill(color).frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(endpoint.name).lineLimit(1)
-                    Text(detail).font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
+                    detail.font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                if case .up(let code, let ms) = health {
-                    Text("\(code) · \(ms) ms").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                if hovering {
+                    Button("Edit", systemImage: "pencil", action: edit).labelStyle(.iconOnly).buttonStyle(.borderless)
+                }
+                VStack(alignment: .trailing, spacing: 3) {
+                    Sparkline(history: history)
+                    if case .up(let code, let ms) = health {
+                        Text((code == 200 ? "" : "\(code) · ") + (ms < 1000 ? "\(ms) ms" : String(format: "%.1f s", Double(ms) / 1000)))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(ms > 1000 ? .orange : .secondary)
+                    }
                 }
             }
             .padding(.horizontal, 8)
@@ -258,9 +301,11 @@ struct Row: View {
         .onHover { hovering = $0 }
     }
 
-    private var detail: String {
-        if case .down(let reason) = health { return reason }
-        return endpoint.url.replacingOccurrences(of: "https://", with: "")
+    private var detail: Text {
+        guard case .down(let reason) = health else { return Text(endpoint.url.replacingOccurrences(of: "https://", with: "")) }
+        guard let downSince else { return Text(reason) }
+        let minutes = Int(-downSince.timeIntervalSinceNow / 60)
+        return Text("\(reason) · " + (minutes < 1 ? "just now" : minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"))
     }
 
     private var color: Color {
@@ -272,21 +317,41 @@ struct Row: View {
     }
 }
 
+/// Response times of the last 30 checks, newest on the right. Failed checks are full-height red bars.
+struct Sparkline: View {
+    let history: [Int?]
+
+    var body: some View {
+        // Scale to 3x the median so one cold-start spike doesn't flatten the rest; taller bars clip.
+        let times = history.compactMap { $0 }.sorted()
+        let peak = CGFloat(max(min(times.last ?? 1, 3 * (times.isEmpty ? 1 : times[times.count / 2])), 1))
+        HStack(alignment: .bottom, spacing: 1) {
+            ForEach(Array(history.enumerated()), id: \.offset) { _, ms in
+                Capsule()
+                    .fill(ms == nil ? Color.red : ms! > 1000 ? .orange : .secondary.opacity(0.5))
+                    .frame(width: 2, height: ms.map { min(14, max(2, 14 * CGFloat($0) / peak)) } ?? 14)
+            }
+        }
+        .frame(width: 90, height: 14, alignment: .bottomTrailing)
+    }
+}
+
 struct Editor: View {
     @State var endpoint: Endpoint
     let done: (Endpoint?) -> Void
 
+    private var host: String? { URL(string: endpoint.url).flatMap { $0.host() } }
     private var valid: Bool {
-        !endpoint.name.trimmingCharacters(in: .whitespaces).isEmpty && (100...599).contains(endpoint.expected)
-            && URL(string: endpoint.url).map { ["http", "https"].contains($0.scheme) && $0.host() != nil } == true
+        (100...599).contains(endpoint.expected) && host != nil
+            && URL(string: endpoint.url).map { ["http", "https"].contains($0.scheme) } == true
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(endpoint.name.isEmpty ? "New endpoint" : endpoint.name).font(.headline)
+            Text(endpoint.name.isEmpty ? host ?? "New endpoint" : endpoint.name).font(.headline)
             Form {
-                TextField("Name", text: $endpoint.name, prompt: Text("My API"))
                 TextField("URL", text: $endpoint.url, prompt: Text("https://api.example.com/health"))
+                TextField("Name", text: $endpoint.name, prompt: Text(host ?? "Optional"))
                 TextField("Expect", value: $endpoint.expected, format: .number.grouping(.never), prompt: Text("200"))
             }
             Text("Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
@@ -295,7 +360,13 @@ struct Editor: View {
             HStack {
                 Spacer()
                 Button("Cancel") { done(nil) }.keyboardShortcut(.cancelAction)
-                Button("Save") { done(endpoint) }.keyboardShortcut(.defaultAction).disabled(!valid)
+                Button("Save") {
+                    var saved = endpoint
+                    if saved.name.trimmingCharacters(in: .whitespaces).isEmpty { saved.name = host ?? saved.url }
+                    done(saved)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!valid)
             }
         }
         .padding(12)
