@@ -16,6 +16,7 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 - The receiver token is in a private file, not in the Keychain. Updates no longer ask for your password. Upbar makes a new token once, so copy the test command again.
 - The Events tab has a **Receiving** switch to turn the receiver off.
+- When another app holds port 4747, Upbar says so and tries again every 5 seconds.
 - The test command uses the Tailscale address of the Mac when Tailscale is on.
 - The editor uses grouped sections and a title bar with **Cancel** and **Save**.
 - The window has a solid background and fits its content.

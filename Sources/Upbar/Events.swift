@@ -139,7 +139,18 @@ final class Receiver {
                 guard let self else { return }
                 switch state {
                 case .ready: (self.listening, self.error) = (true, nil)
-                case .failed(let failure): (self.listening, self.error) = (false, "Port \(self.port): \(failure.localizedDescription)")
+                case .failed(let failure):
+                    self.listening = false
+                    self.error = failure == .posix(.EADDRINUSE)
+                        ? "Another app uses port \(self.port). Often it is a second copy of Upbar. Upbar tries again every 5 seconds."
+                        : "Port \(self.port): \(failure.localizedDescription)"
+                    // Retry: during an update the old copy can hold the port for a moment.
+                    // ponytail: fixed 5 s retry while on; a listener that keeps failing costs one syscall per try.
+                    self.stop()
+                    Task { [weak self] in
+                        try? await Task.sleep(for: .seconds(5))
+                        if let self, self.enabled, self.listener == nil { self.start() }
+                    }
                 case .cancelled: self.listening = false
                 default: break
                 }
