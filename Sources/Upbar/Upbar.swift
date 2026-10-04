@@ -62,6 +62,8 @@ final class Store {
     /// Last 30 raw response times, nil = failed check. Drives the sparkline.
     private(set) var history: [UUID: [Int?]] = [:]
     private(set) var downSince: [UUID: Date] = [:]
+    /// One entry per check round, newest last. Drives the menu bar icon.
+    private(set) var rounds: [Round] = []
     private var streak: [UUID: Int] = [:]
     private var checking = false
 
@@ -100,6 +102,8 @@ final class Store {
             if case .down(let reason) = after, !before.isDown { downSince[endpoint.id] = .now; notify("\(endpoint.name) is down", reason) }
             if before.isDown, case .up = after { downSince[endpoint.id] = nil; notify("\(endpoint.name) is back up", endpoint.url) }
         }
+        let times = results.values.compactMap { if case .up(_, let ms) = $0 { ms } else { nil } }.sorted()
+        rounds = (rounds + [Round(ms: times.isEmpty ? nil : times[times.count / 2], failed: results.values.contains { $0.isDown })]).suffix(7)
         lastCheck = .now
     }
 
@@ -150,24 +154,50 @@ struct Upbar: App {
         MenuBarExtra {
             Popover().environment(store)
         } label: {
-            if store.downCount > 0 {
-                Image(nsImage: alertIcon)
-                Text("\(store.downCount)")
-            } else {
-                Image(systemName: "checkmark.circle")
-            }
+            Image(nsImage: menuBarIcon(store.rounds, down: store.downCount))
+            if store.downCount > 0 { Text("\(store.downCount)") }
         }
         .menuBarExtraStyle(.window)
     }
 }
 
-/// Red in the menu bar. Template images are always monochrome, so this one opts out.
-@MainActor let alertIcon: NSImage = {
-    let image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Endpoint down")!
-        .withSymbolConfiguration(.init(paletteColors: [.systemRed]))!
-    image.isTemplate = false
+struct Round: Equatable {
+    var ms: Int?  // median response time of the round's successful checks
+    var failed: Bool
+}
+
+/// The menu bar icon: a 7-bar sparkline of recent check rounds.
+/// Healthy, it's a template image that follows the menu bar tint. A failed round draws a full bar,
+/// orange for a past blip and red while something is down, which needs a non-template image.
+@MainActor func menuBarIcon(_ rounds: [Round], down: Int) -> NSImage {
+    let bars = 7, width: CGFloat = 2.5, gap: CGFloat = 1.5, height: CGFloat = 14
+    let recent = Array(repeating: nil, count: max(0, bars - rounds.count)) + rounds.suffix(bars).map(Optional.some)
+    let times = rounds.compactMap(\.ms).sorted()
+    let peak = CGFloat(max(min(times.last ?? 1, 3 * (times.isEmpty ? 1 : times[times.count / 2])), 1))
+    let anyFailed = rounds.suffix(bars).contains(where: \.failed)
+    let image = NSImage(size: NSSize(width: CGFloat(bars) * (width + gap) - gap, height: 16), flipped: false) { _ in
+        for (i, round) in recent.enumerated() {
+            let barHeight: CGFloat
+            switch round {
+            case nil:
+                NSColor.labelColor.withAlphaComponent(0.3).setFill()
+                barHeight = 3
+            case let round? where round.failed:
+                (down > 0 ? NSColor.systemRed : .systemOrange).setFill()
+                barHeight = height
+            case let round?:
+                NSColor.labelColor.setFill()
+                barHeight = round.ms.map { max(3, height * min(1, CGFloat($0) / peak)) } ?? 3
+            }
+            NSBezierPath(roundedRect: NSRect(x: CGFloat(i) * (width + gap), y: 1, width: width, height: barHeight),
+                         xRadius: width / 2, yRadius: width / 2).fill()
+        }
+        return true
+    }
+    image.isTemplate = !anyFailed
+    image.accessibilityDescription = down > 0 ? "\(down) down" : "All up"
     return image
-}()
+}
 
 struct Popover: View {
     @Environment(Store.self) private var store

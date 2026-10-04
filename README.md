@@ -4,7 +4,7 @@ Is it up? A tiny macOS menu bar app that checks your URLs every minute and notif
 
 <img src="screenshot.png" width="320" alt="Upbar popover">
 
-- Shows a ✓ in the menu bar when everything is up, and a red ⚠ when something is down
+- Shows a live sparkline of response times in the menu bar: an orange bar for a blip, red bars and a count when something is down
 - Sends a notification when an endpoint goes down and when it comes back
 - Lets you set the status code you expect for each endpoint (200, 204, 301…)
 - One Swift file, no dependencies, no account, no telemetry
