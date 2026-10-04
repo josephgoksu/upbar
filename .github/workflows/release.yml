@@ -11,7 +11,8 @@ jobs:
       - uses: actions/checkout@v4
       - run: swift test
       - run: VERSION="${GITHUB_REF_NAME#v}" ./build.sh
-      - run: gh release create "$GITHUB_REF_NAME" dist/Upbar.zip dist/Upbar.zip.sha256 --title "Upbar $GITHUB_REF_NAME" --notes-file <(sed -n "/^## \[${GITHUB_REF_NAME#v}\]/,/^## \[/p" CHANGELOG.md | sed '1d;$d')
-        shell: bash
+      - name: Release notes from CHANGELOG.md
+        run: awk -v v="${GITHUB_REF_NAME#v}" '/^## \[/{p=index($0, "[" v "]")>0; next} /^\[/{p=0} p' CHANGELOG.md > notes.md
+      - run: gh release create "$GITHUB_REF_NAME" dist/Upbar.zip dist/Upbar.zip.sha256 --title "Upbar $GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
