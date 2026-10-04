@@ -501,8 +501,12 @@ struct Popover: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("n")
                 .help("Add endpoint (⌘N)")
-            } else if !receiver.events.isEmpty {
-                Button("Clear", systemImage: "trash") { receiver.clear() }.buttonStyle(.borderless)
+            } else if tab == .events, receiver.enabled {
+                // The off switch sits where you see the receiver, not only in the ⋯ menu.
+                Toggle("Receiving", isOn: $receiver.enabled).toggleStyle(.switch).controlSize(.mini).font(.callout)
+                if !receiver.events.isEmpty {
+                    Button("Clear", systemImage: "trash") { receiver.clear() }.buttonStyle(.borderless).padding(.leading, 8)
+                }
             }
             Spacer()
             Menu {

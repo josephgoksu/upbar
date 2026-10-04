@@ -1,5 +1,4 @@
 import Network
-import Security
 import SwiftUI
 import SystemConfiguration
 import UserNotifications
@@ -74,25 +73,18 @@ func makeEvent(_ request: Request) -> Event {
     return event
 }
 
-/// The receiver token lives in the Keychain, never in the preferences file.
-enum Keychain {
-    private static var query: [String: Any] { [kSecClass as String: kSecClassGenericPassword,
-                                               kSecAttrService as String: "Upbar", kSecAttrAccount as String: "receiver-token"] }
+/// The receiver token lives in a file only your user can read (mode 0600).
+/// ponytail: not the Keychain. Its access is tied to the code signature, so every unsigned update asked for your password
+/// and held up the receiver. Move back to the Keychain once every release is signed with a Developer ID.
+@MainActor enum TokenFile {
+    static let url = Store.historyFile.deletingLastPathComponent().appending(path: "receiver-token")
 
-    static var token: String? {
-        var item: CFTypeRef?
-        var q = query
-        (q[kSecReturnData as String], q[kSecMatchLimit as String]) = (true, kSecMatchLimitOne)
-        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
+    static var token: String? { (try? String(contentsOf: url, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
 
     static func newToken() -> String {
         let token = (0..<4).map { _ in String(UInt64.random(in: .min ... .max), radix: 36) }.joined()
-        SecItemDelete(query as CFDictionary)
-        var q = query
-        q[kSecValueData as String] = Data(token.utf8)
-        SecItemAdd(q as CFDictionary, nil)
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: url.path, contents: Data(token.utf8), attributes: [.posixPermissions: 0o600])
         return token
     }
 }
@@ -102,7 +94,7 @@ final class Receiver {
     private(set) var events: [Event] = []  // newest first, at most 100
     private(set) var listening = false
     private(set) var error: String?
-    private(set) var token = Keychain.token ?? ""
+    private(set) var token = TokenFile.token ?? ""
     var unread = 0
     let port: UInt16 = 4747
     private var listener: NWListener?
@@ -116,14 +108,26 @@ final class Receiver {
 
     /// The Bonjour name of this Mac, for example `josephs-macbook.local`.
     var url: String { "http://\((SCDynamicStoreCopyLocalHostName(nil) as String?)?.lowercased() ?? "localhost").local:\(port)" }
+    /// The address of this Mac on Tailscale (100.64.0.0/10). Cloud servers on your tailnet can reach this one.
+    var tailscaleURL: String? {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return nil }
+        defer { freeifaddrs(list) }
+        for entry in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            guard let address = entry.pointee.ifa_addr, address.pointee.sa_family == UInt8(AF_INET) else { continue }
+            let ip = address.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { UInt32(bigEndian: $0.pointee.sin_addr.s_addr) }
+            if ip >> 22 == 0b01_1001_0001 { return "http://\(ip >> 24).\(ip >> 16 & 255).\(ip >> 8 & 255).\(ip & 255):\(port)" }
+        }
+        return nil
+    }
     /// The command to copy. On screen Upbar shows `$UPBAR_TOKEN` instead, so the token never shows in a screen share.
     func curlExample(token: String) -> String {
-        "curl -H \"Authorization: Bearer \(token)\" -H \"Title: Deploy finished\" -H \"Tags: white_check_mark\" -d \"API is live\" \(url)"
+        "curl -H \"Authorization: Bearer \(token)\" -H \"Title: Deploy finished\" -H \"Tags: white_check_mark\" -d \"API is live\" \(tailscaleURL ?? url)"
     }
 
     init() { if enabled { start() } }
 
-    func newToken() { token = Keychain.newToken() }
+    func newToken() { token = TokenFile.newToken() }
     func clear() { (events, unread) = ([], 0) }
 
     private func start() {
@@ -221,7 +225,11 @@ struct EventList: View {
             ContentUnavailableView {
                 Label("Waiting for Events", systemImage: "antenna.radiowaves.left.and.right")
             } description: {
-                Text(verbatim: receiver.url).textSelection(.enabled)
+                VStack(spacing: 2) {
+                    Text(verbatim: receiver.url)
+                    if let tailscale = receiver.tailscaleURL { Text(verbatim: "Tailscale: \(tailscale)") }
+                }
+                .textSelection(.enabled)
             } actions: { VStack(spacing: 8) {
                 // On screen the token stays a variable; the copy has the real one.
                 Text(verbatim: receiver.curlExample(token: "$UPBAR_TOKEN"))

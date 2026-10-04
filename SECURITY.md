@@ -18,7 +18,7 @@ Result: You get a response in 7 days. When a fix is available, we publish a rele
 
 ## 3. Scope
 
-Upbar sends requests only to the URLs that the user adds. Upbar keeps one credential: the receiver token, in the Keychain. These items are in scope:
+Upbar sends requests only to the URLs that the user adds. Upbar keeps one credential: the receiver token, in `~/Library/Application Support/Upbar/receiver-token` with mode 0600. These items are in scope:
 
 - The app (`Sources/`)
 - The event receiver on port 4747 (`Sources/Upbar/Events.swift`)

@@ -206,7 +206,7 @@ Upbar decreases resource use in these ways:
 - Upbar keeps the list of endpoints on your Mac, in the `com.josephgoksu.upbar` preferences.
 - Upbar keeps the check results of the last 24 hours in `~/Library/Application Support/Upbar/history.plist`. Each check result is a time and a response time. Upbar deletes results that are older than 24 hours.
 - Upbar does not keep cookies, a cache or the response bodies.
-- Events go directly from the sender to your Mac. Upbar keeps them only in memory. The receiver token is in the Keychain.
+- Events go directly from the sender to your Mac. Upbar keeps them only in memory. The receiver token is in a file that only your user can read.
 
 ## 8. How Upbar checks an endpoint
 
@@ -240,7 +240,7 @@ Upbar can receive events from your deploys, CI jobs, scripts and servers. Upbar 
 2. Click **Events**.
 3. Click **Turn On Events**.
 
-Result: Upbar listens on port 4747. It makes an access token and keeps it in the Keychain.
+Result: Upbar listens on port 4747. It makes an access token and keeps it in a file that only your user can read.
 
 > [!CAUTION]
 > Upbar accepts events from all devices that can connect to your Mac on port 4747. Upbar rejects each request that does not have the correct token. Do not share the token.
@@ -301,7 +301,6 @@ Rules:
 | The **Save** button is not available. | The URL or the expected status code is not correct. | Read the red text below the fields. Correct the value. |
 | The test command shows a connection error. | Events are off, or a firewall blocks port 4747. | Turn on events. In **System Settings > Network > Firewall > Options**, allow incoming connections for Upbar. |
 | The test command shows status 401. | The token is not correct. | Select **⋯ > Copy Test Command** again. |
-| macOS asks for the Keychain password after an update. | The app has a new signature. Builds that are not notarized change the signature. | Click **Always Allow**. |
 
 ## 11. Removal
 

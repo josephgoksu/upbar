@@ -22,3 +22,10 @@ import Testing
     #expect(urgent.severity == .failure)
     #expect(makeEvent(Request(method: "POST", target: "/", headers: [:], body: Data("ping".utf8))).severity == .info)
 }
+
+@MainActor @Test func tokenFileIsPrivate() throws {
+    let token = TokenFile.newToken()
+    #expect(TokenFile.token == token)
+    let mode = try FileManager.default.attributesOfItem(atPath: TokenFile.url.path)[.posixPermissions] as? Int
+    #expect(mode == 0o600)
+}
