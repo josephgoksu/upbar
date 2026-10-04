@@ -195,6 +195,24 @@ func site(_ url: String) -> String {
 /// `swift run` has no app bundle, and notifications and login items need one.
 let isApp = Bundle.main.bundleURL.pathExtension == "app"
 
+/// Upbar's own cost: CPU time divided by run time since launch, and memory as Activity Monitor counts it.
+/// Read when the footer redraws (about once a check), so showing it costs nothing.
+func usage() -> String {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let ok = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+    } == KERN_SUCCESS
+    var rusage = rusage()
+    getrusage(RUSAGE_SELF, &rusage)
+    let cpu = Double(rusage.ru_utime.tv_sec + rusage.ru_stime.tv_sec) + Double(rusage.ru_utime.tv_usec + rusage.ru_stime.tv_usec) / 1e6
+    let running = max(1, Date.now.timeIntervalSince(launched))
+    let memory = ok ? " · " + ByteCountFormatter.string(fromByteCount: Int64(info.phys_footprint), countStyle: .memory) : ""
+    return String(format: "CPU %.2f%% average", cpu / running * 100) + memory
+}
+
+let launched = Date.now  // a lazy global: Store.init touches it so it marks the launch
+
 @MainActor @Observable
 final class Store {
     var endpoints: [Endpoint] { didSet { UserDefaults.standard.set(try? JSONEncoder().encode(endpoints), forKey: "endpoints") } }
@@ -221,6 +239,7 @@ final class Store {
     private let path = NWPathMonitor()
 
     init() {
+        _ = launched
         let saved = UserDefaults.standard.data(forKey: "endpoints")
         endpoints = saved.flatMap { try? JSONDecoder().decode([Endpoint].self, from: $0) } ?? []
         let ids = Set(endpoints.map(\.id))
@@ -615,6 +634,8 @@ struct Popover: View {
             }
             Spacer()
             Menu {
+                Text(usage())
+                Divider()
                 Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)
                 Section("Events") {
                     Toggle("Receive Events", isOn: $receiver.enabled)
