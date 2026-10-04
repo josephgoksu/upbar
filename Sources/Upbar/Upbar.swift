@@ -352,7 +352,11 @@ struct Popover: View {
                     .labelsHidden()
                     .padding([.horizontal, .bottom], 12)
                     Divider()
-                    if tab == .endpoints { list } else { EventList() }
+                    // Both tabs stay in the layout, so the window keeps one height and never floats when you switch.
+                    ZStack(alignment: .top) {
+                        list.frame(maxHeight: .infinity, alignment: .top).tabPane(tab == .endpoints)
+                        EventList().frame(maxHeight: .infinity).tabPane(tab == .events)
+                    }
                     Divider()
                     footer
                 }
@@ -397,11 +401,13 @@ struct Popover: View {
 
     @ViewBuilder private var list: some View {
         if store.endpoints.isEmpty {
-            Text("Nothing to watch yet.\nPaste a URL and Upbar checks it every minute.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(24)
+            ContentUnavailableView {
+                Label("Nothing to Watch", systemImage: "waveform.path.ecg")
+            } description: {
+                Text("Paste a URL and Upbar checks it every minute.")
+            } actions: {
+                Button("Add Endpoint") { editing = Endpoint() }.buttonStyle(.borderedProminent)
+            }
         } else {
             ScrollView {
                 VStack(spacing: 0) {
@@ -692,5 +698,12 @@ struct Editor: View {
         testing = true
         testResult = await probe(saved)
         testing = false
+    }
+}
+
+extension View {
+    /// Hides a tab without removing it, so it still counts toward the popover height.
+    func tabPane(_ shown: Bool) -> some View {
+        opacity(shown ? 1 : 0).allowsHitTesting(shown).accessibilityHidden(!shown)
     }
 }

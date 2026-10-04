@@ -208,37 +208,34 @@ struct EventList: View {
 
     var body: some View {
         if !receiver.enabled {
-            VStack(spacing: 10) {
-                Text("Get notified by your deploys, CI jobs and scripts.").font(.callout)
-                Text("Upbar receives events directly on this Mac. Nothing goes through another server.")
-                    .font(.caption).foregroundStyle(.secondary)
+            ContentUnavailableView {
+                Label("Deploy Alerts", systemImage: "bell.badge")
+            } description: {
+                Text("Get notified when a deploy, CI job or script finishes. Events go straight to this Mac.")
+            } actions: {
                 Button("Turn On Events") { receiver.enabled = true }.buttonStyle(.borderedProminent)
             }
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(20)
+        } else if receiver.events.isEmpty, let error = receiver.error {
+            ContentUnavailableView("Can't Receive Events", systemImage: "exclamationmark.triangle", description: Text(error))
         } else if receiver.events.isEmpty {
-            VStack(spacing: 8) {
-                if let error = receiver.error {
-                    Text(error).font(.caption).foregroundStyle(.red)
-                } else {
-                    Text("Listening on \(receiver.url)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                }
-                Text("Send a test event:").font(.caption).foregroundStyle(.secondary)
+            ContentUnavailableView {
+                Label("Waiting for Events", systemImage: "antenna.radiowaves.left.and.right")
+            } description: {
+                Text(verbatim: receiver.url).textSelection(.enabled)
+            } actions: { VStack(spacing: 8) {
+                // On screen the token stays a variable; the copy has the real one.
                 Text(verbatim: receiver.curlExample(token: "$UPBAR_TOKEN"))
                     .font(.caption2.monospaced())
-                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
                     .padding(8)
-                    .background(.quaternary, in: .rect(cornerRadius: 6))
-                Button("Copy Command") {
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary.opacity(0.5), in: .rect(cornerRadius: 6))
+                Button("Copy Test Command", systemImage: "doc.on.doc") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(receiver.curlExample(token: receiver.token), forType: .string)
                 }
-                .controlSize(.small)
-            }
-            .multilineTextAlignment(.center)
-            .frame(maxWidth: .infinity)
-            .padding(16)
+            } }
         } else {
             ScrollView {
                 LazyVStack(spacing: 0) {
