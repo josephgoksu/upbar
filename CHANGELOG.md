@@ -8,6 +8,7 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 - The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
 - The editor has a **Test now** button. It shows the status code and the response time of the endpoint.
+- Upbar keeps the check results of the last 24 hours on disk. The editor shows the uptime and the p50, p95 and p99 response times.
 
 ### Changed
 

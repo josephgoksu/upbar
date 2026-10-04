@@ -71,6 +71,31 @@ func normalizeURL(_ text: String) -> String {
     return trimmed.isEmpty || trimmed.contains("://") ? trimmed : "https://" + trimmed
 }
 
+/// One check result. 8 bytes of data: seconds since 1970 and the response time, -1 for a failed check.
+struct Sample: Codable, Equatable {
+    var t: UInt32
+    var ms: Int32
+}
+
+struct Stats: Equatable {
+    var uptime: Double  // share of successful checks, 0...1
+    var checks: Int
+    var p50: Int?, p95: Int?, p99: Int?
+}
+
+/// Nearest-rank percentile of an ascending array.
+func percentile(_ sorted: [Int], _ p: Double) -> Int? {
+    guard !sorted.isEmpty else { return nil }
+    return sorted[max(0, Int((p / 100 * Double(sorted.count)).rounded(.up)) - 1)]
+}
+
+func summarize(_ samples: [Sample]) -> Stats? {
+    guard !samples.isEmpty else { return nil }
+    let times = samples.filter { $0.ms >= 0 }.map { Int($0.ms) }.sorted()
+    return Stats(uptime: Double(times.count) / Double(samples.count), checks: samples.count,
+                 p50: percentile(times, 50), p95: percentile(times, 95), p99: percentile(times, 99))
+}
+
 /// `swift run` has no app bundle, and notifications and login items need one.
 let isApp = Bundle.main.bundleURL.pathExtension == "app"
 
@@ -79,8 +104,12 @@ final class Store {
     var endpoints: [Endpoint] { didSet { UserDefaults.standard.set(try? JSONEncoder().encode(endpoints), forKey: "endpoints") } }
     private(set) var health: [UUID: Health] = [:]
     private(set) var lastCheck: Date?
-    /// Last 30 raw response times, nil = failed check. Drives the sparkline.
-    private(set) var history: [UUID: [Int?]] = [:]
+    /// Raw check results of the last 24 hours, oldest first. Drives the sparkline and the stats. Saved to disk.
+    private(set) var samples: [UUID: [Sample]] = [:]
+    private var savedAt = Date.now
+    static let window: TimeInterval = 24 * 60 * 60
+    /// The dev build (`swift run`, tests) keeps its own file, so it never touches the real history.
+    static let historyFile = (isApp ? URL.applicationSupportDirectory : URL.temporaryDirectory).appending(path: "Upbar/history.plist")
     private(set) var downSince: [UUID: Date] = [:]
     /// One entry per check round, newest last. Drives the menu bar icon.
     private(set) var rounds: [Round] = []
@@ -93,6 +122,14 @@ final class Store {
     init() {
         let saved = UserDefaults.standard.data(forKey: "endpoints")
         endpoints = saved.flatMap { try? JSONDecoder().decode([Endpoint].self, from: $0) } ?? []
+        let ids = Set(endpoints.map(\.id))
+        samples = ((try? Data(contentsOf: Self.historyFile)).flatMap { try? PropertyListDecoder().decode([UUID: [Sample]].self, from: $0) } ?? [:])
+            .filter { ids.contains($0.key) }
+            .mapValues { list in list.filter { Double($0.t) >= Date.now.timeIntervalSince1970 - Self.window } }
+        // Quit saves the history; queue .main keeps the callback on the main thread.
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveHistory() }
+        }
         if isApp { Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) } }
         // @Sendable: macOS calls this on a background queue, so it must not inherit the main actor.
         path.pathUpdateHandler = { @Sendable [weak self] path in
@@ -138,6 +175,7 @@ final class Store {
         let times = results.values.compactMap { if case .up(_, let ms) = $0 { ms } else { nil } }.sorted()
         rounds = (rounds + [Round(ms: times.isEmpty ? nil : times[times.count / 2], failed: results.values.contains { $0.isDown })]).suffix(7)
         lastCheck = .now
+        if Date.now.timeIntervalSince(savedAt) > 600 { saveHistory() }  // every 10 minutes, not every check
     }
 
     func save(_ endpoint: Endpoint) {
@@ -158,13 +196,33 @@ final class Store {
         forget(endpoint.id)
     }
 
+    /// The last 30 response times for the sparkline, nil = failed check.
+    func history(_ id: UUID) -> [Int?] { (samples[id] ?? []).suffix(30).map { $0.ms >= 0 ? Int($0.ms) : nil } }
+
+    func stats(_ id: UUID) -> Stats? { summarize(samples[id] ?? []) }
+
     private func record(_ id: UUID, _ result: Health) {
-        let ms: Int? = if case .up(_, let ms) = result { ms } else { nil }
-        history[id, default: []] = (history[id, default: []] + [ms]).suffix(30)
+        let now = UInt32(Date.now.timeIntervalSince1970)
+        let ms: Int32 = if case .up(_, let ms) = result { Int32(clamping: ms) } else { -1 }
+        var list = samples[id, default: []]
+        list.append(Sample(t: now, ms: ms))
+        // Drop what is older than 24 hours. The count cap also bounds manual checks.
+        let cutoff = now - UInt32(Self.window)
+        list.removeFirst(list.firstIndex { $0.t >= cutoff } ?? 0)
+        samples[id] = list.suffix(2 * 1440)
+    }
+
+    func saveHistory() {
+        savedAt = .now
+        let encoder = PropertyListEncoder()
+        encoder.outputFormat = .binary
+        guard let data = try? encoder.encode(samples) else { return }
+        try? FileManager.default.createDirectory(at: Self.historyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? data.write(to: Self.historyFile, options: .atomic)
     }
 
     private func forget(_ id: UUID) {
-        (health[id], streak[id], history[id], downSince[id]) = (nil, nil, nil, nil)
+        (health[id], streak[id], samples[id], downSince[id]) = (nil, nil, nil, nil)
     }
 
     var launchAtLogin = SMAppService.mainApp.status == .enabled {
@@ -246,7 +304,7 @@ struct Popover: View {
         Group {
             if let endpoint = editing {
                 let isNew = !store.endpoints.contains { $0.id == endpoint.id }
-                Editor(endpoint: endpoint, isNew: isNew) { action in
+                Editor(endpoint: endpoint, isNew: isNew, stats: store.stats(endpoint.id)) { action in
                     switch action {
                     case .save(let saved): store.save(saved)
                     case .delete: store.delete(endpoint)
@@ -312,7 +370,7 @@ struct Popover: View {
                 VStack(spacing: 0) {
                     ForEach(store.sorted) { endpoint in
                         Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
-                            history: store.history[endpoint.id] ?? [], downSince: store.downSince[endpoint.id]) { editing = endpoint }
+                            history: store.history(endpoint.id), downSince: store.downSince[endpoint.id]) { editing = endpoint }
                             .contextMenu {
                                 Button("Edit…") { editing = endpoint }
                                 Button("Delete", role: .destructive) { store.delete(endpoint) }
@@ -439,6 +497,7 @@ struct Editor: View {
 
     @State var endpoint: Endpoint
     let isNew: Bool
+    let stats: Stats?
     let done: (Action) -> Void
     @FocusState private var urlFocused: Bool
     @State private var confirmDelete = false
@@ -496,6 +555,16 @@ struct Editor: View {
                     Text(!(100...599).contains(endpoint.expected) ? "Expect an HTTP status code between 100 and 599."
                          : "Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
                         .foregroundStyle(!(100...599).contains(endpoint.expected) ? .red : .secondary)
+                }
+                if let stats {
+                    Section("Last 24 hours") {
+                        LabeledContent("Uptime", value: String(format: "%.2f%%", stats.uptime * 100))
+                        LabeledContent("p50 / p95 / p99") {
+                            Text([stats.p50, stats.p95, stats.p99].map { $0.map(String.init) ?? "–" }.joined(separator: " / ") + " ms")
+                                .monospacedDigit()
+                        }
+                        LabeledContent("Checks", value: "\(stats.checks)")
+                    }
                 }
                 if !isNew {
                     Section {

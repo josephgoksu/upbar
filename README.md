@@ -22,6 +22,7 @@ Features:
 - The menu bar icon shows the response times of the last 7 checks.
 - Each endpoint shows the response times of its last 30 checks.
 - You can set the HTTP status code that each endpoint must return.
+- Upbar shows the uptime and the p50, p95 and p99 response times of the last 24 hours.
 - Upbar uses a small quantity of memory, CPU and network. Refer to [section 6](#6-resource-use).
 - Upbar does not collect data. Refer to [section 7](#7-privacy).
 - The source code is one Swift file. It has no dependencies.
@@ -98,7 +99,7 @@ Result: Upbar checks the endpoint immediately. Then it checks the endpoint every
 4. Change the URL, the name or the expected status code.
 5. Click **Save**.
 
-When the editor opens, Upbar tests the endpoint. The **Test** row shows the result.
+When the editor opens, Upbar tests the endpoint. The **Test** row shows the result. The **Last 24 hours** section shows the uptime, the p50, p95 and p99 response times, and the number of checks.
 
 > [!NOTE]
 > If you change only the name, Upbar keeps the check history. If you change the URL or the expected status code, Upbar removes the check history.
@@ -190,6 +191,7 @@ Upbar decreases resource use in these ways:
 - Upbar does not collect data.
 - Upbar sends requests only to the endpoints that you add.
 - Upbar keeps the list of endpoints on your Mac, in the `com.josephgoksu.upbar` preferences.
+- Upbar keeps the check results of the last 24 hours in `~/Library/Application Support/Upbar/history.plist`. Each check result is a time and a response time. Upbar deletes results that are older than 24 hours.
 - Upbar does not keep cookies, a cache or the response bodies.
 
 ## 8. How Upbar checks an endpoint
@@ -200,6 +202,12 @@ Upbar decreases resource use in these ways:
 4. If the status code of the `GET` request is different, the check fails.
 5. After 2 failed checks in sequence, the endpoint is down. Upbar sends a notification.
 6. When a check of a down endpoint is successful, the endpoint is up. Upbar sends a notification.
+
+Statistics:
+
+- The uptime is the percentage of successful checks in the last 24 hours.
+- p50, p95 and p99 use the nearest-rank method. They use only successful checks.
+- Upbar writes the check results to disk every 10 minutes and when it stops. If the Mac stops unexpectedly, the results of the last 10 minutes are lost.
 
 Rules:
 
@@ -233,6 +241,12 @@ Rules:
 
    ```sh
    defaults delete com.josephgoksu.upbar
+   ```
+
+4. Optional: To remove the check results, type this command, then push the Return key:
+
+   ```sh
+   rm -rf ~/Library/Application\ Support/Upbar
    ```
 
 ## 11. Build from the source code
