@@ -6,10 +6,11 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ### Added
 
+- Click an endpoint to open its detail page: status, uptime, failed checks, mean, p50, p90, p95, p99, fastest and slowest check, the 24-hour chart, the last 5 incidents and the last request. The compass icon and the right-click menu open the URL in the browser.
 - Upbar reads Coolify webhooks: the app name, the environment, success or failure, and a link to the deployment. README section 9.3 shows the setup.
-- Request traces: the editor shows the DNS, connect, TLS and server time of the last request, with the protocol, TLS version and IP address.
+- Request traces: the detail page shows the DNS, connect, TLS and server time of the last request, with the protocol, TLS version and IP address.
 - Upbar shows when the TLS certificate expires and sends a notification 14 days before.
-- The editor counts the incidents of the last 24 hours and shows the mean time to recovery (MTTR).
+- The detail page counts the incidents of the last 24 hours and shows the mean time to recovery (MTTR).
 - The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
 - The editor has a **Test now** button. It shows the status code and the response time of the endpoint.
 - Upbar keeps the check results of the last 24 hours on disk. The editor shows the uptime and the p50, p95 and p99 response times.

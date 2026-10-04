@@ -25,7 +25,8 @@ import Testing
 
 @Test func statsCountFailuresInUptimeOnly() {
     let s = summarize([Sample(t: 1, ms: 100), Sample(t: 2, ms: -1), Sample(t: 3, ms: 300), Sample(t: 4, ms: 200)])
-    #expect(s == Stats(uptime: 0.75, checks: 4, p50: 200, p95: 300, p99: 300))
+    #expect(s == Stats(uptime: 0.75, checks: 4, p50: 200, p90: 300, p95: 300, p99: 300, mean: 200, min: 100, max: 300))
+    #expect(s?.failed == 1)
     #expect(summarize([]) == nil)
 }
 

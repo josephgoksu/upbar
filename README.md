@@ -22,7 +22,7 @@ Features:
 - The menu bar icon shows the response times of the last 7 checks.
 - Each endpoint shows the response times of its last 30 checks.
 - You can set the HTTP status code that each endpoint must return.
-- Upbar shows the uptime and the p50, p95 and p99 response times of the last 24 hours. A chart shows the response times.
+- Click an endpoint to see its details: the uptime, the failed checks, the mean, p50, p90, p95 and p99 response times, the fastest and slowest check, and a chart of the last 24 hours.
 - Upbar shows the time of each phase of a request: DNS, connect, TLS and server.
 - Upbar shows when the TLS certificate expires. It sends a notification 14 days before.
 - Upbar counts the incidents of the last 24 hours and the mean time to recovery (MTTR).
@@ -103,11 +103,18 @@ Result: Upbar checks the endpoint immediately. Then it checks the endpoint every
 4. Change the URL, the name or the expected status code.
 5. Click **Save**.
 
-When the editor opens, Upbar tests the endpoint. The **Test** row shows the result. The **Last 24 hours** section shows the uptime, the p50, p95 and p99 response times, and the number of checks. A chart shows the response time. Red lines show failed checks.
+In the editor, click **Test now** to test the endpoint. The **Test** row shows the result.
+
+### 4.3.1 See the details of an endpoint
+
+1. Open the Upbar window.
+2. Click the endpoint.
+
+The **Now** section shows the status, the URL and the expected status code. The **Last 24 hours** section shows the uptime, the number of checks and failed checks, the mean, p50, p90, p95 and p99 response times, and the fastest and slowest check. A chart shows the response time. Red lines show failed checks. Click **Back** or push Esc to go back.
 
 The **Last request** section shows the request phases, the protocol, the TLS version and the IP address of the server. It also shows the expiry date of the certificate. If the request used an open connection, Upbar shows only the server time and the word **reused**.
 
-The **Incidents** row shows the number of outages, the MTTR and the time of the last outage. An outage is 2 failed checks in a row, the same rule as the notifications.
+The **Incidents** row shows the number of outages, the MTTR and the time of the last outage. Below it, Upbar shows the start time and the duration of the last 5 outages. An outage is 2 failed checks in a row, the same rule as the notifications.
 
 > [!NOTE]
 > If you change only the name, Upbar keeps the check history. If you change the URL or the expected status code, Upbar removes the check history.
@@ -143,6 +150,7 @@ Result: Upbar hides the endpoints of that website. Click the name again to show 
 
 1. Open the Upbar window.
 2. Click the endpoint.
+3. Click the compass icon at the top right. Alternatively, right-click the endpoint, then select **Open in Browser**.
 
 ### 4.8 Start Upbar when you log in
 
@@ -228,7 +236,7 @@ Upbar decreases resource use in these ways:
 Statistics:
 
 - The uptime is the percentage of successful checks in the last 24 hours.
-- p50, p95 and p99 use the nearest-rank method. They use only successful checks.
+- p50, p90, p95 and p99 use the nearest-rank method. They use only successful checks.
 - Upbar writes the check results to disk every 10 minutes and when it stops. If the Mac stops unexpectedly, the results of the last 10 minutes are lost.
 
 Rules:

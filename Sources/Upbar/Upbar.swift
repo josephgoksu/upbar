@@ -166,7 +166,9 @@ struct Sample: Codable, Equatable {
 struct Stats: Equatable {
     var uptime: Double  // share of successful checks, 0...1
     var checks: Int
-    var p50: Int?, p95: Int?, p99: Int?
+    var p50: Int?, p90: Int?, p95: Int?, p99: Int?
+    var mean: Int?, min: Int?, max: Int?  // of successful checks
+    var failed: Int { checks - Int((uptime * Double(checks)).rounded()) }
 }
 
 /// Nearest-rank percentile of an ascending array.
@@ -179,7 +181,8 @@ func summarize(_ samples: [Sample]) -> Stats? {
     guard !samples.isEmpty else { return nil }
     let times = samples.filter { $0.ms >= 0 }.map { Int($0.ms) }.sorted()
     return Stats(uptime: Double(times.count) / Double(samples.count), checks: samples.count,
-                 p50: percentile(times, 50), p95: percentile(times, 95), p99: percentile(times, 99))
+                 p50: percentile(times, 50), p90: percentile(times, 90), p95: percentile(times, 95), p99: percentile(times, 99),
+                 mean: times.isEmpty ? nil : times.reduce(0, +) / times.count, min: times.first, max: times.last)
 }
 
 /// The website an endpoint belongs to: `api.markwise.app` becomes `markwise.app`.
@@ -475,6 +478,7 @@ struct Popover: View {
     @Environment(Store.self) private var store
     @Environment(Receiver.self) private var receiver
     @State private var editing: Endpoint?
+    @State private var detail: UUID?
     @State private var tab = Tab.endpoints
     @State private var collapsed: Set<String> = []
 
@@ -488,16 +492,19 @@ struct Popover: View {
         Group {
             if let endpoint = editing {
                 let isNew = !store.endpoints.contains { $0.id == endpoint.id }
-                Editor(endpoint: endpoint, isNew: isNew, samples: store.samples[endpoint.id] ?? [],
-                       trace: store.traces[endpoint.id], certExpires: store.certExpiry[endpoint.id]) { action in
+                Editor(endpoint: endpoint, isNew: isNew) { action in
                     switch action {
                     case .save(let saved): store.save(saved)
-                    case .delete: store.delete(endpoint)
+                    case .delete: store.delete(endpoint); detail = nil
                     case .cancel: break
                     }
                     editing = nil
                 }
                 .id(endpoint.id)
+            } else if let id = detail, let endpoint = store.endpoints.first(where: { $0.id == id }) {
+                Detail(endpoint: endpoint, health: store.health[id] ?? .unknown, downSince: store.downSince[id],
+                       samples: store.samples[id] ?? [], trace: store.traces[id], certExpires: store.certExpiry[id],
+                       back: { detail = nil }, edit: { editing = endpoint })
             } else {
                 VStack(spacing: 0) {
                     hero
@@ -596,9 +603,10 @@ struct Popover: View {
                                 ForEach(group.endpoints) { endpoint in
                                     Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
                                         history: store.history(endpoint.id), downSince: store.downSince[endpoint.id],
-                                        certExpires: store.certExpiry[endpoint.id]) { editing = endpoint }
+                                        certExpires: store.certExpiry[endpoint.id], show: { detail = endpoint.id }) { editing = endpoint }
                                         .padding(.leading, 24)  // indent under the website header
                                         .contextMenu {
+                                            Button("Open in Browser") { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } }
                                             Button("Edit…") { editing = endpoint }
                                             Button("Delete", role: .destructive) { store.delete(endpoint) }
                                         }
@@ -795,13 +803,14 @@ struct Row: View {
     let history: [Int?]
     let downSince: Date?
     let certExpires: Date?
+    let show: () -> Void
     let edit: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        // Two sibling buttons, never nested, so the pencil can't also open the URL.
+        // Two sibling buttons, never nested, so the pencil can't also open the details.
         HStack(spacing: 4) {
-            Button { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } } label: {
+            Button(action: show) {
                 HStack(spacing: 10) {
                     Circle().fill(color).frame(width: 8, height: 8)
                         .shadow(color: color.opacity(health.isDown ? 0.9 : 0.5), radius: 3)
@@ -822,7 +831,7 @@ struct Row: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Open \(endpoint.url)")
+            .help("Show details")
 
             // Always in the layout, shown on hover, so nothing shifts when the pointer moves.
             Button("Edit \(endpoint.name)", systemImage: "pencil.circle.fill", action: edit)
@@ -891,14 +900,10 @@ struct Editor: View {
 
     @State var endpoint: Endpoint
     let isNew: Bool
-    let samples: [Sample]
-    let trace: Trace?
-    let certExpires: Date?
     let done: (Action) -> Void
     @FocusState private var urlFocused: Bool
     @State private var confirmDelete = false
     @State private var testResult: Health?
-    @State private var testTrace: Trace?
     @State private var testing = false
 
     private var url: URL? {
@@ -953,27 +958,6 @@ struct Editor: View {
                          : "Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
                         .foregroundStyle(!(100...599).contains(endpoint.expected) ? .red : .secondary)
                 }
-                if let shown = testTrace ?? trace {
-                    Section("Last request") {
-                        if shown.reused {
-                            LabeledContent("Server", value: "\(shown.server) ms").monospacedDigit()
-                        } else {
-                            Waterfall(trace: shown)
-                        }
-                        LabeledContent("Connection") {
-                            Text([shown.proto, shown.tlsVersion, shown.address, shown.reused ? "reused" : nil].compactMap { $0 }.joined(separator: " · "))
-                                .textSelection(.enabled)
-                        }
-                        if let expires = shown.certExpires ?? certExpires {
-                            let days = Int(expires.timeIntervalSinceNow / 86400)
-                            LabeledContent("Certificate") {
-                                Text("\(expires.formatted(date: .abbreviated, time: .omitted)) · \(days) days")
-                                    .foregroundStyle(days < 0 ? .red : days < certWarningDays ? .orange : .secondary)
-                            }
-                        }
-                    }
-                }
-                History(samples: samples)
                 if !isNew {
                     Section {
                         // Two clicks: the first arms it, so a stray click can't delete.
@@ -988,8 +972,7 @@ struct Editor: View {
             .formStyle(.grouped)
         }
         .onAppear { urlFocused = true }
-        .task { if !isNew { await test() } }  // show the current state of an existing endpoint right away
-        .onChange(of: endpoint.url) { (testResult, testTrace) = (nil, nil) }
+        .onChange(of: endpoint.url) { testResult = nil }
         .onChange(of: endpoint.expected) { testResult = nil }
     }
 
@@ -1005,35 +988,113 @@ struct Editor: View {
 
     private func test() async {
         testing = true
-        (testResult, testTrace) = await probe(saved)
+        testResult = await probe(saved).0
         testing = false
     }
 }
 
-/// Its own view, so typing in the editor doesn't sort the samples and rebuild the chart on every keystroke:
-/// SwiftUI skips this body while `samples` is unchanged.
-struct History: View {
+/// Everything Upbar knows about one endpoint: its state now, 24 hours of latency and uptime, outages and the last request.
+struct Detail: View {
+    let endpoint: Endpoint
+    let health: Health
+    let downSince: Date?
     let samples: [Sample]
+    let trace: Trace?
+    let certExpires: Date?
+    let back: () -> Void
+    let edit: () -> Void
 
     var body: some View {
-        if let stats = summarize(samples) {
-            let outages = incidents(samples)
-            Section {
-                HStack(spacing: 8) {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Button("Back", systemImage: "chevron.left", action: back).keyboardShortcut(.cancelAction)
+                Spacer()
+                Text(endpoint.name).font(.headline).lineLimit(1)
+                Spacer()
+                Button("Open in Browser", systemImage: "safari") { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } }
+                    .labelStyle(.iconOnly).help("Open in browser")
+                Button("Edit", systemImage: "pencil", action: edit).labelStyle(.iconOnly).help("Edit")
+            }
+            .buttonStyle(.borderless)
+            .padding(12)
+            Divider()
+            Form {
+                Section("Now") {
+                    LabeledContent("Status") { status }
+                    LabeledContent("URL") { Text(verbatim: endpoint.url).textSelection(.enabled).lineLimit(2) }
+                    LabeledContent("Expects", value: "HTTP \(endpoint.expected)")
+                }
+                if let stats = summarize(samples) { last24(stats) }
+                if let trace { lastRequest(trace) }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    private var status: some View {
+        switch health {
+        case .unknown: Text("Checking…").foregroundStyle(.secondary)
+        case .up(let code, let ms): Text("Up · \(code) · \(ms) ms").foregroundStyle(.green)
+        case .down(let reason):
+            Text(reason + (downSince.map { " · since " + $0.formatted(date: .omitted, time: .shortened) } ?? "")).foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder private func last24(_ stats: Stats) -> some View {
+        let ms = { (value: Int?) in value.map { "\($0) ms" } ?? "–" }
+        Section {
+            Grid(horizontalSpacing: 8, verticalSpacing: 8) {
+                GridRow {
                     Tile(label: "Uptime", value: String(format: "%.2f%%", stats.uptime * 100), tint: stats.uptime < 0.99 ? .orange : .green)
-                    Tile(label: "p50", value: stats.p50.map { "\($0) ms" } ?? "–")
-                    Tile(label: "p95", value: stats.p95.map { "\($0) ms" } ?? "–")
-                    Tile(label: "p99", value: stats.p99.map { "\($0) ms" } ?? "–")
+                    Tile(label: "Checks", value: "\(stats.checks)")
+                    Tile(label: "Failed", value: "\(stats.failed)", tint: stats.failed > 0 ? .red : .primary)
+                    Tile(label: "Mean", value: ms(stats.mean))
                 }
-                ResponseChart(buckets: buckets(samples))
-                LabeledContent("Incidents") {
-                    Text(incidentSummary(outages)).monospacedDigit()
-                        .foregroundStyle(outages.isEmpty ? Color.secondary : .orange)
+                GridRow {
+                    Tile(label: "p50", value: ms(stats.p50))
+                    Tile(label: "p90", value: ms(stats.p90))
+                    Tile(label: "p95", value: ms(stats.p95))
+                    Tile(label: "p99", value: ms(stats.p99), tint: (stats.p99 ?? 0) > 1000 ? .orange : .primary)
                 }
-            } header: {
-                Text("Last 24 hours")
-            } footer: {
-                Text("\(stats.checks) checks. Red marks show failed checks.")
+            }
+            ResponseChart(buckets: buckets(samples))
+            LabeledContent("Fastest · slowest", value: "\(ms(stats.min)) · \(ms(stats.max))").monospacedDigit()
+            let outages = incidents(samples)
+            LabeledContent("Incidents") {
+                Text(incidentSummary(outages)).monospacedDigit().foregroundStyle(outages.isEmpty ? Color.secondary : .orange)
+            }
+            ForEach(outages.suffix(5).reversed(), id: \.start) { incident in
+                let start = Date(timeIntervalSince1970: TimeInterval(incident.start))
+                LabeledContent(start.formatted(date: .omitted, time: .shortened)) {
+                    Text(incident.end.map { duration(Int($0 - incident.start)) } ?? "ongoing")
+                        .foregroundStyle(incident.end == nil ? .red : .secondary).monospacedDigit()
+                }
+                .font(.callout)
+            }
+        } header: {
+            Text("Last 24 hours")
+        } footer: {
+            Text("Percentiles use successful checks only. Red marks on the chart show failed checks.")
+        }
+    }
+
+    private func lastRequest(_ trace: Trace) -> some View {
+        Section("Last request") {
+            if trace.reused {
+                LabeledContent("Server", value: "\(trace.server) ms").monospacedDigit()
+            } else {
+                Waterfall(trace: trace)
+            }
+            LabeledContent("Connection") {
+                Text([trace.proto, trace.tlsVersion, trace.address, trace.reused ? "reused" : nil].compactMap { $0 }.joined(separator: " · "))
+                    .textSelection(.enabled)
+            }
+            if let expires = trace.certExpires ?? certExpires {
+                let days = Int(expires.timeIntervalSinceNow / 86400)
+                LabeledContent("Certificate") {
+                    Text("\(expires.formatted(date: .abbreviated, time: .omitted)) · \(days) days")
+                        .foregroundStyle(days < 0 ? .red : days < certWarningDays ? .orange : .secondary)
+                }
             }
         }
     }
