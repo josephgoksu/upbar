@@ -51,6 +51,12 @@ func probe(_ endpoint: Endpoint) async -> Health {
     }
 }
 
+/// Trims whitespace and adds https:// when the scheme is missing, so pasted URLs just work.
+func normalizeURL(_ text: String) -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty || trimmed.contains("://") ? trimmed : "https://" + trimmed
+}
+
 /// `swift run` has no app bundle, and notifications and login items need one.
 let isApp = Bundle.main.bundleURL.pathExtension == "app"
 
@@ -65,7 +71,7 @@ final class Store {
     /// One entry per check round, newest last. Drives the menu bar icon.
     private(set) var rounds: [Round] = []
     private var streak: [UUID: Int] = [:]
-    private var checking = false
+    private(set) var checking = false
 
     init() {
         let saved = UserDefaults.standard.data(forKey: "endpoints")
@@ -108,10 +114,13 @@ final class Store {
     }
 
     func save(_ endpoint: Endpoint) {
+        let old = endpoints.first { $0.id == endpoint.id }
         if let i = endpoints.firstIndex(where: { $0.id == endpoint.id }) { endpoints[i] = endpoint } else { endpoints.append(endpoint) }
+        guard old?.url != endpoint.url || old?.expected != endpoint.expected else { return }  // a rename keeps its history
         forget(endpoint.id)
         Task {  // show it right away, without waiting for the next round
             let result = await probe(endpoint)
+            guard endpoints.contains(endpoint) else { return }
             health[endpoint.id] = result
             record(endpoint.id, result)
         }
@@ -131,9 +140,12 @@ final class Store {
         (health[id], streak[id], history[id], downSince[id]) = (nil, nil, nil, nil)
     }
 
-    var launchAtLogin: Bool {
-        get { SMAppService.mainApp.status == .enabled }
-        set { try? newValue ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister() }
+    var launchAtLogin = SMAppService.mainApp.status == .enabled {
+        didSet {
+            guard launchAtLogin != (SMAppService.mainApp.status == .enabled) else { return }
+            do { try launchAtLogin ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister() } catch { launchAtLogin = !launchAtLogin }
+            if SMAppService.mainApp.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+        }
     }
 
     private func notify(_ title: String, _ body: String) {
@@ -206,10 +218,16 @@ struct Popover: View {
     var body: some View {
         Group {
             if let endpoint = editing {
-                Editor(endpoint: endpoint) { saved in
-                    if let saved { store.save(saved) }
+                let isNew = !store.endpoints.contains { $0.id == endpoint.id }
+                Editor(endpoint: endpoint, isNew: isNew) { action in
+                    switch action {
+                    case .save(let saved): store.save(saved)
+                    case .delete: store.delete(endpoint)
+                    case .cancel: break
+                    }
                     editing = nil
                 }
+                .id(endpoint.id)
             } else {
                 VStack(spacing: 0) {
                     header
@@ -238,10 +256,15 @@ struct Popover: View {
                 }
             }
             Spacer()
-            Button("Check now", systemImage: "arrow.clockwise") { Task { await store.check() } }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .keyboardShortcut("r")
+            if store.checking {
+                ProgressView().controlSize(.small).frame(width: 16, height: 16)
+            } else {
+                Button("Check now", systemImage: "arrow.clockwise") { Task { await store.check() } }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut("r")
+                    .help("Check now (⌘R)")
+            }
         }
         .padding(12)
     }
@@ -275,7 +298,9 @@ struct Popover: View {
     private var footer: some View {
         @Bindable var store = store
         return HStack {
-            Button("Add", systemImage: "plus") { editing = Endpoint() }.keyboardShortcut("n")
+            Button("Add", systemImage: "plus") { editing = Endpoint() }
+                .keyboardShortcut("n")
+                .help("Add endpoint (⌘N)")
             Spacer()
             Menu {
                 Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)
@@ -302,37 +327,49 @@ struct Row: View {
     @State private var hovering = false
 
     var body: some View {
-        Button { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } } label: {
-            HStack(spacing: 10) {
-                Circle().fill(color).frame(width: 8, height: 8)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(endpoint.name).lineLimit(1)
-                    detail.font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
-                }
-                Spacer(minLength: 8)
-                if hovering {
-                    Button("Edit", systemImage: "pencil", action: edit).labelStyle(.iconOnly).buttonStyle(.borderless)
-                }
-                VStack(alignment: .trailing, spacing: 3) {
-                    Sparkline(history: history)
-                    if case .up(let code, let ms) = health {
-                        Text((code == 200 ? "" : "\(code) · ") + (ms < 1000 ? "\(ms) ms" : String(format: "%.1f s", Double(ms) / 1000)))
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(ms > 1000 ? .orange : .secondary)
+        // Two sibling buttons, never nested, so the pencil can't also open the URL.
+        HStack(spacing: 4) {
+            Button { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } } label: {
+                HStack(spacing: 10) {
+                    Circle().fill(color).frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(endpoint.name).lineLimit(1)
+                        detail.font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 3) {
+                        Sparkline(history: history)
+                        if case .up(let code, let ms) = health {
+                            Text((code == 200 ? "" : "\(code) · ") + (ms < 1000 ? "\(ms) ms" : String(format: "%.1f s", Double(ms) / 1000)))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(ms > 1000 ? .orange : .secondary)
+                        }
                     }
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-            .background(hovering ? Color.primary.opacity(0.07) : .clear, in: .rect(cornerRadius: 6))
+            .buttonStyle(.plain)
+            .help("Open \(endpoint.url)")
+
+            // Always in the layout, shown on hover, so nothing shifts when the pointer moves.
+            Button("Edit \(endpoint.name)", systemImage: "pencil.circle.fill", action: edit)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .help("Edit")
+                .opacity(hovering ? 1 : 0)
+                .allowsHitTesting(hovering)
         }
-        .buttonStyle(.plain)
+        .padding(.leading, 8)
+        .padding(.trailing, 4)
+        .padding(.vertical, 6)
+        .background(hovering ? Color.primary.opacity(0.07) : .clear, in: .rect(cornerRadius: 6))
         .onHover { hovering = $0 }
     }
 
     private var detail: Text {
-        guard case .down(let reason) = health else { return Text(endpoint.url.replacingOccurrences(of: "https://", with: "")) }
+        guard case .down(let reason) = health else { return Text(endpoint.url.replacing(/^https?:\/\//, with: "")) }
         guard let downSince else { return Text(reason) }
         let minutes = Int(-downSince.timeIntervalSinceNow / 60)
         return Text("\(reason) · " + (minutes < 1 ? "just now" : minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h \(minutes % 60)m"))
@@ -367,38 +404,63 @@ struct Sparkline: View {
 }
 
 struct Editor: View {
-    @State var endpoint: Endpoint
-    let done: (Endpoint?) -> Void
+    enum Action { case save(Endpoint), delete, cancel }
 
-    private var host: String? { URL(string: endpoint.url).flatMap { $0.host() } }
-    private var valid: Bool {
-        (100...599).contains(endpoint.expected) && host != nil
-            && URL(string: endpoint.url).map { ["http", "https"].contains($0.scheme) } == true
+    @State var endpoint: Endpoint
+    let isNew: Bool
+    let done: (Action) -> Void
+    @FocusState private var urlFocused: Bool
+    @State private var confirmDelete = false
+
+    private var url: URL? {
+        URL(string: normalizeURL(endpoint.url)).flatMap { ["http", "https"].contains($0.scheme) && $0.host() != nil ? $0 : nil }
+    }
+    private var valid: Bool { url != nil && (100...599).contains(endpoint.expected) }
+    /// Live String binding: a formatted number field only commits on Return, so clicking Save would drop the edit.
+    private var expected: Binding<String> {
+        Binding { endpoint.expected == 0 ? "" : String(endpoint.expected) } set: { endpoint.expected = Int($0.filter(\.isNumber).prefix(3)) ?? 0 }
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(endpoint.name.isEmpty ? host ?? "New endpoint" : endpoint.name).font(.headline)
+            Text(isNew ? "Add endpoint" : "Edit endpoint").font(.headline)
             Form {
-                TextField("URL", text: $endpoint.url, prompt: Text("https://api.example.com/health"))
-                TextField("Name", text: $endpoint.name, prompt: Text(host ?? "Optional"))
-                TextField("Expect", value: $endpoint.expected, format: .number.grouping(.never), prompt: Text("200"))
+                TextField("URL", text: $endpoint.url, prompt: Text("https://api.example.com/health")).focused($urlFocused)
+                TextField("Name", text: $endpoint.name, prompt: Text(url?.host() ?? "Optional"))
+                TextField("Expect", text: expected, prompt: Text("200"))
             }
-            Text("Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Group {
+                if url == nil, !["", "https://"].contains(endpoint.url) {
+                    Text(verbatim: "Enter a full URL, like https://example.com/health").foregroundStyle(.red)
+                } else if !(100...599).contains(endpoint.expected) {
+                    Text("Expect an HTTP status code between 100 and 599.").foregroundStyle(.red)
+                } else {
+                    Text("Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.").foregroundStyle(.secondary)
+                }
+            }
+            .font(.caption)
             HStack {
+                if !isNew {
+                    // Two clicks: the first arms it, so a stray click can't delete.
+                    Button(confirmDelete ? "Click again to delete" : "Delete", role: .destructive) {
+                        if confirmDelete { done(.delete) } else { confirmDelete = true }
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.red)
+                }
                 Spacer()
-                Button("Cancel") { done(nil) }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { done(.cancel) }.keyboardShortcut(.cancelAction)
                 Button("Save") {
                     var saved = endpoint
-                    if saved.name.trimmingCharacters(in: .whitespaces).isEmpty { saved.name = host ?? saved.url }
-                    done(saved)
+                    saved.url = normalizeURL(saved.url)
+                    if saved.name.trimmingCharacters(in: .whitespaces).isEmpty { saved.name = url?.host() ?? saved.url }
+                    done(.save(saved))
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!valid)
             }
         }
         .padding(12)
+        .onAppear { urlFocused = true }
     }
 }

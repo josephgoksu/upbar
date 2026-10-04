@@ -10,3 +10,9 @@ import Testing
     (shown, streak) = step(shown, streak: streak, probe: up)
     #expect(shown == up && streak == 0)
 }
+
+@Test func pastedURLsAreNormalized() {
+    #expect(normalizeURL("  example.com/health\n") == "https://example.com/health")
+    #expect(normalizeURL("http://example.com") == "http://example.com")
+    #expect(normalizeURL("   ") == "")
+}
