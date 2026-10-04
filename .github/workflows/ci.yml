@@ -12,7 +12,7 @@ jobs:
   test:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: swift test
       - run: ./build.sh
       - name: "Smoke test: the app starts and keeps running"
