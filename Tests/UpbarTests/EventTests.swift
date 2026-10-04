@@ -8,6 +8,7 @@ import Testing
                                                     headers: ["host": "mac", "title": "Deploy", "content-length": "5"], body: Data("hello".utf8)))
     #expect(parseRequest(Data(raw.dropLast(2).utf8)) == nil, "body not complete yet")
     #expect(parseRequest(Data("POST / HTTP/1.1\r\nHost: mac".utf8)) == nil, "headers not complete yet")
+    #expect(parseRequest(Data("POST / HTTP/1.1\r\nContent-Length: -1\r\n\r\n".utf8))?.body == Data(), "a bad length must not crash")
 }
 
 @Test func eventsComeFromHeadersOrJSON() {

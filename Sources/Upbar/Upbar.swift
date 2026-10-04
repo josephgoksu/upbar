@@ -518,7 +518,8 @@ struct Popover: View {
                     } else if mood == .empty {
                         Text("Uptime checks in your menu bar")
                     } else if let last = store.lastCheck {
-                        Text("\(up) up · checked \(last, style: .relative) ago")
+                        // Not Text(style: .relative): that re-lays out the popover every second, even while hidden (5% CPU idle).
+                        TimelineView(.everyMinute) { _ in Text("\(up) up · checked \(last.formatted(.relative(presentation: .named)))") }
                     }
                 }
                 .font(.callout)
@@ -945,26 +946,7 @@ struct Editor: View {
                         }
                     }
                 }
-                if let stats = summarize(samples) {
-                    let outages = incidents(samples)
-                    Section {
-                        HStack(spacing: 8) {
-                            Tile(label: "Uptime", value: String(format: "%.2f%%", stats.uptime * 100), tint: stats.uptime < 0.99 ? .orange : .green)
-                            Tile(label: "p50", value: stats.p50.map { "\($0) ms" } ?? "–")
-                            Tile(label: "p95", value: stats.p95.map { "\($0) ms" } ?? "–")
-                            Tile(label: "p99", value: stats.p99.map { "\($0) ms" } ?? "–")
-                        }
-                        ResponseChart(buckets: buckets(samples))
-                        LabeledContent("Incidents") {
-                            Text(incidentSummary(outages)).monospacedDigit()
-                                .foregroundStyle(outages.isEmpty ? Color.secondary : .orange)
-                        }
-                    } header: {
-                        Text("Last 24 hours")
-                    } footer: {
-                        Text("\(stats.checks) checks. Red marks show failed checks.")
-                    }
-                }
+                History(samples: samples)
                 if !isNew {
                     Section {
                         // Two clicks: the first arms it, so a stray click can't delete.
@@ -998,6 +980,35 @@ struct Editor: View {
         testing = true
         (testResult, testTrace) = await probe(saved)
         testing = false
+    }
+}
+
+/// Its own view, so typing in the editor doesn't sort the samples and rebuild the chart on every keystroke:
+/// SwiftUI skips this body while `samples` is unchanged.
+struct History: View {
+    let samples: [Sample]
+
+    var body: some View {
+        if let stats = summarize(samples) {
+            let outages = incidents(samples)
+            Section {
+                HStack(spacing: 8) {
+                    Tile(label: "Uptime", value: String(format: "%.2f%%", stats.uptime * 100), tint: stats.uptime < 0.99 ? .orange : .green)
+                    Tile(label: "p50", value: stats.p50.map { "\($0) ms" } ?? "–")
+                    Tile(label: "p95", value: stats.p95.map { "\($0) ms" } ?? "–")
+                    Tile(label: "p99", value: stats.p99.map { "\($0) ms" } ?? "–")
+                }
+                ResponseChart(buckets: buckets(samples))
+                LabeledContent("Incidents") {
+                    Text(incidentSummary(outages)).monospacedDigit()
+                        .foregroundStyle(outages.isEmpty ? Color.secondary : .orange)
+                }
+            } header: {
+                Text("Last 24 hours")
+            } footer: {
+                Text("\(stats.checks) checks. Red marks show failed checks.")
+            }
+        }
     }
 }
 

@@ -28,6 +28,14 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - New look: a status ring and tint in the header, pill tabs, website cards with letter tiles, and a 24-hour response time chart in the editor. Upbar has no new dependencies; the chart uses Swift Charts.
 - The response-time bars use 2 times the median as the full height. Thus, small changes are visible.
 
+### Fixed
+
+- Idle CPU is 0%. The "checked N seconds ago" text re-laid out the window every second, also while it was closed (5% CPU). Times now update once a minute.
+- Typing in the editor no longer sorts the history and redraws the chart on each keystroke.
+- A request with a negative `Content-Length` crashed the receiver.
+- The receiver drops a connection that sends no complete request in 10 seconds.
+- The receiver rebinds port 4747 right after a restart, without waiting for the old socket to time out.
+
 ## [0.1.1] - 2026-10-04
 
 ### Fixed

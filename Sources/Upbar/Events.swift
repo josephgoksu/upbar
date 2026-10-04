@@ -48,7 +48,7 @@ func parseRequest(_ data: Data) -> Request? {
         guard let colon = line.firstIndex(of: ":") else { continue }
         headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
     }
-    let length = Int(headers["content-length"] ?? "0") ?? 0
+    let length = max(0, Int(headers["content-length"] ?? "0") ?? 0)  // a negative length would crash prefix()
     let body = data[end.upperBound...]
     guard body.count >= length else { return nil }
     return Request(method: String(start[0]), target: String(start[1]), headers: headers, body: Data(body.prefix(length)))
@@ -135,7 +135,9 @@ final class Receiver {
 
     private func start() {
         if token.isEmpty { newToken() }
-        guard listener == nil, let listener = try? NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!) else { return }
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true  // rebind right after a stop, without waiting out TIME_WAIT
+        guard listener == nil, let listener = try? NWListener(using: parameters, on: NWEndpoint.Port(rawValue: port)!) else { return }
         // Callbacks run on a background queue; @Sendable keeps them off the main actor, and each hops back explicitly.
         listener.stateUpdateHandler = { @Sendable [weak self] state in
             Task { @MainActor in
@@ -162,6 +164,8 @@ final class Receiver {
         listener.newConnectionHandler = { @Sendable [weak self] connection in
             let receiver = self  // a let, so the @Sendable request handler can capture it
             connection.start(queue: .global(qos: .utility))
+            // A client that connects and never finishes its request would hold a thread's worth of state forever.
+            Task { try? await Task.sleep(for: .seconds(10)); connection.cancel() }
             Receiver.read(connection, Data()) { request in
                 await receiver?.handle(request) ?? (503, "Service Unavailable")
             }
@@ -288,7 +292,8 @@ struct EventRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                Text(event.time, style: .relative).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                TimelineView(.everyMinute) { _ in Text(event.time.formatted(.relative(presentation: .named))) }
+                    .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
             }
             .padding(8)
             .contentShape(Rectangle())
