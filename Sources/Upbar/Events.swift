@@ -292,7 +292,7 @@ struct EventRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                TimelineView(.everyMinute) { _ in Text(event.time.formatted(.relative(presentation: .named))) }
+                TimelineView(.everyMinute) { _ in Text(event.time.formatted(.relative(presentation: .named, unitsStyle: .abbreviated))) }
                     .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
             }
             .padding(8)

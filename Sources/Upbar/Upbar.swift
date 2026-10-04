@@ -519,7 +519,7 @@ struct Popover: View {
                         Text("Uptime checks in your menu bar")
                     } else if let last = store.lastCheck {
                         // Not Text(style: .relative): that re-lays out the popover every second, even while hidden (5% CPU idle).
-                        TimelineView(.everyMinute) { _ in Text("\(up) up · checked \(last.formatted(.relative(presentation: .named)))") }
+                        TimelineView(.everyMinute) { _ in Text("\(up) up · checked \(last.formatted(.relative(presentation: .named, unitsStyle: .abbreviated)))") }
                     }
                 }
                 .font(.callout)
