@@ -195,23 +195,22 @@ func site(_ url: String) -> String {
 /// `swift run` has no app bundle, and notifications and login items need one.
 let isApp = Bundle.main.bundleURL.pathExtension == "app"
 
-/// Upbar's own cost: CPU time divided by run time since launch, and memory as Activity Monitor counts it.
-/// Read when the footer redraws (about once a check), so showing it costs nothing.
-func usage() -> String {
+/// CPU seconds this process has used since launch.
+func cpuSeconds() -> Double {
+    var usage = rusage()
+    getrusage(RUSAGE_SELF, &usage)
+    return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1e6
+}
+
+/// Memory as Activity Monitor counts it.
+func memoryFootprint() -> Int64? {
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
     let ok = withUnsafeMutablePointer(to: &info) {
         $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
     } == KERN_SUCCESS
-    var rusage = rusage()
-    getrusage(RUSAGE_SELF, &rusage)
-    let cpu = Double(rusage.ru_utime.tv_sec + rusage.ru_stime.tv_sec) + Double(rusage.ru_utime.tv_usec + rusage.ru_stime.tv_usec) / 1e6
-    let running = max(1, Date.now.timeIntervalSince(launched))
-    let memory = ok ? " · " + ByteCountFormatter.string(fromByteCount: Int64(info.phys_footprint), countStyle: .memory) : ""
-    return String(format: "CPU %.2f%% average", cpu / running * 100) + memory
+    return ok ? Int64(info.phys_footprint) : nil
 }
-
-let launched = Date.now  // a lazy global: Store.init touches it so it marks the launch
 
 @MainActor @Observable
 final class Store {
@@ -237,9 +236,11 @@ final class Store {
     /// Offline, every check would fail and alert. Checks pause instead and resume on reconnect.
     private(set) var online = true
     private let path = NWPathMonitor()
+    /// Upbar's own CPU use between the last two checks, 0...1. Includes the checks and any redraw while the window was open.
+    private(set) var cpu: Double?
+    private var lastCPU = (seconds: cpuSeconds(), at: ContinuousClock.now)
 
     init() {
-        _ = launched
         let saved = UserDefaults.standard.data(forKey: "endpoints")
         endpoints = saved.flatMap { try? JSONDecoder().decode([Endpoint].self, from: $0) } ?? []
         let ids = Set(endpoints.map(\.id))
@@ -309,6 +310,9 @@ final class Store {
         let times = results.values.compactMap { if case .up(_, let ms) = $0 { ms } else { nil } }.sorted()
         rounds = (rounds + [Round(ms: times.isEmpty ? nil : times[times.count / 2], failed: results.values.contains { $0.isDown })]).suffix(7)
         lastCheck = .now
+        let now = (seconds: cpuSeconds(), at: ContinuousClock.now)
+        cpu = (now.seconds - lastCPU.seconds) / max(1, (now.at - lastCPU.at) / .seconds(1))
+        lastCPU = now
         if Date.now.timeIntervalSince(savedAt) > 600 { saveHistory() }  // every 10 minutes, not every check
     }
 
@@ -634,7 +638,9 @@ struct Popover: View {
             }
             Spacer()
             Menu {
-                Text(usage())
+                // Read when the footer redraws, about once a check. No timer.
+                Text("CPU " + (store.cpu.map { String(format: "%.2f%%", $0 * 100) } ?? "–") + " last minute · "
+                     + (memoryFootprint().map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .memory) } ?? "–"))
                 Divider()
                 Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)
                 Section("Events") {
