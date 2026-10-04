@@ -118,23 +118,32 @@ When the editor opens, Upbar tests the endpoint. The **Test** row shows the resu
 
 Alternatively, right-click the endpoint, then select **Delete**.
 
-### 4.5 Check all endpoints now
+### 4.5 Fold a website
+
+Upbar groups the endpoints by website. For example, `api.markwise.app` and `markwise.app` are in the group **markwise.app**.
+
+1. Open the Upbar window.
+2. Click the name of the website.
+
+Result: Upbar hides the endpoints of that website. Click the name again to show them.
+
+### 4.6 Check all endpoints now
 
 1. Open the Upbar window.
 2. Click the arrow icon at the top right. The keyboard shortcut is ⌘R.
 
-### 4.6 Open an endpoint in the browser
+### 4.7 Open an endpoint in the browser
 
 1. Open the Upbar window.
 2. Click the endpoint.
 
-### 4.7 Start Upbar when you log in
+### 4.8 Start Upbar when you log in
 
 1. Open the Upbar window.
 2. Click the **⋯** icon at the bottom right.
 3. Select **Open at Login**.
 
-### 4.8 Stop Upbar
+### 4.9 Stop Upbar
 
 1. Open the Upbar window.
 2. Click the **⋯** icon at the bottom right.
@@ -155,6 +164,8 @@ Alternatively, right-click the endpoint, then select **Delete**.
 
 | Indication | Meaning |
 |---|---|
+| Website name and **2/2 up** | All endpoints of the website are up. |
+| Website name and red **1 down** | 1 endpoint of the website is down. Upbar shows this website first. |
 | Green dot | The endpoint is up. |
 | Red dot and red text | The endpoint is down. The text shows the cause and the time since the endpoint went down. |
 | Gray dot | Upbar has not checked the endpoint yet. |
@@ -293,7 +304,7 @@ Rules:
 
 ## 11. Removal
 
-1. Stop Upbar. Refer to [section 4.8](#48-stop-upbar).
+1. Stop Upbar. Refer to [section 4.9](#49-stop-upbar).
 2. In Terminal, type this command, then push the Return key:
 
    ```sh

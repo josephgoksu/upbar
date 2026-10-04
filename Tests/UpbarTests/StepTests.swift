@@ -28,3 +28,12 @@ import Testing
     #expect(s == Stats(uptime: 0.75, checks: 4, p50: 200, p95: 300, p99: 300))
     #expect(summarize([]) == nil)
 }
+
+@Test func endpointsGroupByWebsite() {
+    #expect(site("https://api.markwise.app/health") == "markwise.app")
+    #expect(site("markwise.app") == "markwise.app")
+    #expect(site("https://status.reaktif.io/status/reaktif") == "reaktif.io")
+    #expect(site("https://shop.example.co.uk") == "example.co.uk")
+    #expect(site("http://192.168.1.10:8080/health") == "192.168.1.10")
+    #expect(site("http://localhost:3000") == "localhost")
+}

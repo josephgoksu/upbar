@@ -96,6 +96,16 @@ func summarize(_ samples: [Sample]) -> Stats? {
                  p50: percentile(times, 50), p95: percentile(times, 95), p99: percentile(times, 99))
 }
 
+/// The website an endpoint belongs to: `api.markwise.app` becomes `markwise.app`.
+/// ponytail: last two labels, three for short country suffixes like `co.uk`; use the Public Suffix List if this guesses wrong.
+func site(_ url: String) -> String {
+    guard let host = URL(string: normalizeURL(url))?.host()?.lowercased() else { return url }
+    let labels = host.split(separator: ".")
+    guard labels.count > 2, !host.allSatisfy({ $0.isNumber || $0 == "." }) else { return host }
+    let keep = labels[labels.count - 1].count == 2 && labels[labels.count - 2].count <= 3 ? 3 : 2
+    return labels.suffix(keep).joined(separator: ".")
+}
+
 /// `swift run` has no app bundle, and notifications and login items need one.
 let isApp = Bundle.main.bundleURL.pathExtension == "app"
 
@@ -150,6 +160,18 @@ final class Store {
 
     var downCount: Int { endpoints.count { health[$0.id]?.isDown == true } }
     var sorted: [Endpoint] { endpoints.filter { health[$0.id]?.isDown == true } + endpoints.filter { health[$0.id]?.isDown != true } }
+
+    /// Endpoints grouped by website. Groups with a down endpoint come first, then your order.
+    var groups: [(site: String, endpoints: [Endpoint])] {
+        var order: [String] = [], members: [String: [Endpoint]] = [:]
+        for endpoint in sorted {
+            let key = site(endpoint.url)
+            if members[key] == nil { order.append(key) }
+            members[key, default: []].append(endpoint)
+        }
+        let all = order.map { (site: $0, endpoints: members[$0]!) }
+        return all.filter { $0.endpoints.contains { health[$0.id]?.isDown == true } } + all.filter { !$0.endpoints.contains { health[$0.id]?.isDown == true } }
+    }
 
     func check() async {
         guard !checking, online else { return }
@@ -302,6 +324,7 @@ struct Popover: View {
     @Environment(Receiver.self) private var receiver
     @State private var editing: Endpoint?
     @State private var tab = Tab.endpoints
+    @State private var collapsed: Set<String> = []
 
     enum Tab { case endpoints, events }
 
@@ -382,13 +405,23 @@ struct Popover: View {
         } else {
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(store.sorted) { endpoint in
-                        Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
-                            history: store.history(endpoint.id), downSince: store.downSince[endpoint.id]) { editing = endpoint }
-                            .contextMenu {
-                                Button("Edit…") { editing = endpoint }
-                                Button("Delete", role: .destructive) { store.delete(endpoint) }
+                    ForEach(store.groups, id: \.site) { group in
+                        GroupHeader(site: group.site, total: group.endpoints.count,
+                                    down: group.endpoints.count { store.health[$0.id]?.isDown == true },
+                                    collapsed: collapsed.contains(group.site)) {
+                            withAnimation(.snappy) { collapsed.formSymmetricDifference([group.site]) }
+                        }
+                        if !collapsed.contains(group.site) {
+                            ForEach(group.endpoints) { endpoint in
+                                Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown,
+                                    history: store.history(endpoint.id), downSince: store.downSince[endpoint.id]) { editing = endpoint }
+                                    .padding(.leading, 14)  // indent under the website header
+                                    .contextMenu {
+                                        Button("Edit…") { editing = endpoint }
+                                        Button("Delete", role: .destructive) { store.delete(endpoint) }
+                                    }
                             }
+                        }
                     }
                 }
                 .padding(6)
@@ -432,6 +465,37 @@ struct Popover: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+/// A website header: click to fold or unfold its endpoints.
+struct GroupHeader: View {
+    let site: String
+    let total: Int
+    let down: Int
+    let collapsed: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(collapsed ? 0 : 90))
+                Text(site).font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(down > 0 ? "\(down) down" : "\(total)/\(total) up")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(down > 0 ? .red : .secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(site), \(down > 0 ? "\(down) down" : "all up"), \(collapsed ? "collapsed" : "expanded")")
     }
 }
 

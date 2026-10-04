@@ -9,6 +9,7 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
 - The editor has a **Test now** button. It shows the status code and the response time of the endpoint.
 - Upbar keeps the check results of the last 24 hours on disk. The editor shows the uptime and the p50, p95 and p99 response times.
+- The window groups the endpoints by website. Click a website to fold it.
 - Events: Upbar can receive events from deploys, CI jobs and scripts on port 4747. It shows them in an Events list and sends a notification. No other server is involved. The receiver is off by default and needs a token.
 
 ### Changed
