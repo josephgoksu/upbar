@@ -4,38 +4,33 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-04
+
 ### Added
 
-- Click an endpoint to open its detail page: status, uptime, failed checks, mean, p50, p90, p95, p99, fastest and slowest check, the 24-hour chart, the last 5 incidents and the last request. The compass icon and the right-click menu open the URL in the browser.
-- Upbar reads Coolify webhooks: the app name, the environment, success or failure, and a link to the deployment. README section 9.3 shows the setup.
-- Request traces: the detail page shows the DNS, connect, TLS and server time of the last request, with the protocol, TLS version and IP address.
-- Upbar shows when the TLS certificate expires and sends a notification 14 days before.
-- The detail page counts the incidents of the last 24 hours and shows the mean time to recovery (MTTR).
-- The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
-- The editor has a **Test now** button. It shows the status code and the response time of the endpoint.
-- Upbar keeps the check results of the last 24 hours on disk. The editor shows the uptime and the p50, p95 and p99 response times.
-- The window groups the endpoints by website. Click a website to fold it.
-- Events: Upbar can receive events from deploys, CI jobs and scripts on port 4747. It shows them in an Events list and sends a notification. No other server is involved. The receiver is off by default and needs a token.
+- Detail page: click an endpoint to see the status, uptime, failed checks, mean, p50, p90, p95, p99, fastest and slowest check, a 24-hour chart, incidents with MTTR and the last request.
+- Request trace: DNS, connect, TLS and server time, protocol, TLS version and IP address.
+- Certificate expiry date, with a notification 14 days before.
+- Events: Upbar receives events from deploys, CI jobs and scripts on port 4747. The receiver is off by default and needs a token.
+- Coolify webhooks show the app name, the environment, the result and a link to the deployment.
+- Website groups that you can fold.
+- **Test now** in the editor.
+- The **⋯** menu shows the CPU and memory use of Upbar.
+- The release workflow can sign and notarize the app with a Developer ID.
 
 ### Changed
 
-- The receiver token is in a private file, not in the Keychain. Updates no longer ask for your password. Upbar makes a new token once, so copy the test command again.
-- The Events tab has a **Receiving** switch to turn the receiver off.
-- When another app holds port 4747, Upbar says so and tries again every 5 seconds.
-- The test command uses the Tailscale address of the Mac when Tailscale is on.
-- The editor uses grouped sections and a title bar with **Cancel** and **Save**.
-- The window has a solid background and one fixed size. The list and the editor scroll inside it.
-- The Events tab and empty lists use native empty states.
-- New look: a status ring and tint in the header, pill tabs, website cards with letter tiles, and a 24-hour response time chart in the editor. Upbar has no new dependencies; the chart uses Swift Charts.
-- The response-time bars use 2 times the median as the full height. Thus, small changes are visible.
+- New design: status ring, pill tabs, website cards and one fixed window size.
+- A click on an endpoint opens the detail page. The compass icon and the right-click menu open the URL in the browser.
+- Upbar keeps the check results of the last 24 hours on disk.
+- The receiver token is in a private file, not in the Keychain. Updates do not ask for your password.
 
 ### Fixed
 
-- Idle CPU is 0%. The "checked N seconds ago" text re-laid out the window every second, also while it was closed (5% CPU). Times now update once a minute.
-- Typing in the editor no longer sorts the history and redraws the chart on each keystroke.
-- A request with a negative `Content-Length` crashed the receiver.
-- The receiver drops a connection that sends no complete request in 10 seconds.
-- The receiver rebinds port 4747 right after a restart, without waiting for the old socket to time out.
+- Idle CPU use was 5%. A relative time redrew the window every second. Now it is 0% between checks.
+- A request with a negative `Content-Length` stopped the receiver.
+- The receiver closes a connection after 10 seconds without a complete request.
+- When another app uses port 4747, Upbar shows a message and tries again every 5 seconds.
 
 ## [0.1.1] - 2026-10-04
 
@@ -60,6 +55,7 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - Open at Login setting.
 - Installation script that does not use `sudo` and that compares a SHA-256 checksum.
 
-[Unreleased]: https://github.com/josephgoksu/upbar/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/josephgoksu/upbar/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/josephgoksu/upbar/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/josephgoksu/upbar/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/josephgoksu/upbar/releases/tag/v0.1.0

@@ -624,6 +624,16 @@ struct Popover: View {
         }
     }
 
+    private var cpuText: String {
+        guard let cpu = store.cpu else { return "CPU: measuring…" }
+        return String(format: "CPU: %.2f%% (last minute)", cpu * 100)
+    }
+
+    private var memoryText: String {
+        guard let bytes = memoryFootprint() else { return "Memory: –" }
+        return "Memory: " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)
+    }
+
     private var footer: some View {
         @Bindable var store = store
         @Bindable var receiver = receiver
@@ -649,8 +659,8 @@ struct Popover: View {
                 // Read when the footer redraws, about once a check. No timer.
                 // Upbar's own use, not the Mac's.
                 Section("Upbar uses") {
-                    Text("CPU: " + (store.cpu.map { String(format: "%.2f%%", $0 * 100) } ?? "measuring…") + " (last minute)")
-                    Text("Memory: " + (memoryFootprint().map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .memory) } ?? "–"))
+                    Text(cpuText)
+                    Text(memoryText)
                 }
                 Divider()
                 Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)

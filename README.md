@@ -11,39 +11,33 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/josephgoksu/upbar" alt="MIT license"></a>
 </p>
 
-<p align="center"><img src="docs/screenshot.png" width="340" alt="The Upbar window shows six endpoints. One endpoint is down."></p>
+<p align="center">
+  <img src="docs/screenshot.png" width="300" alt="The Upbar window shows six endpoints in four websites. One endpoint is down.">
+  <img src="docs/detail.png" width="300" alt="The detail page of an endpoint shows uptime, percentiles, a 24-hour chart, incidents and the last request.">
+</p>
 
 ## 1. General
 
-Upbar is a macOS menu bar app. It monitors the HTTP endpoints that you add. Upbar sends a notification when an endpoint goes down. It sends a notification when the endpoint is up again.
+Upbar monitors the HTTP endpoints that you add. It sends a notification when an endpoint goes down and when it is up again.
 
-Features:
-
-- The menu bar icon shows the response times of the last 7 checks.
-- Each endpoint shows the response times of its last 30 checks.
-- You can set the HTTP status code that each endpoint must return.
-- Click an endpoint to see its details: the uptime, the failed checks, the mean, p50, p90, p95 and p99 response times, the fastest and slowest check, and a chart of the last 24 hours.
-- Upbar shows the time of each phase of a request: DNS, connect, TLS and server.
-- Upbar shows when the TLS certificate expires. It sends a notification 14 days before.
-- Upbar counts the incidents of the last 24 hours and the mean time to recovery (MTTR).
-- Upbar uses a small quantity of memory, CPU and network. Refer to [section 6](#6-resource-use).
-- Upbar does not collect data. Refer to [section 7](#7-privacy).
-- Upbar can receive events from your deploys, CI jobs and scripts. Refer to [section 9](#9-events).
-- The source code is two Swift files. It has no dependencies.
-
-## 2. Requirements
-
-| Item | Requirement |
+| Feature | Description |
 |---|---|
-| Operating system | macOS 14 (Sonoma) or later |
-| Processor | Apple silicon or Intel |
-| Permissions | No administrator password is necessary |
+| Menu bar icon | Shows the response times of the last 7 checks |
+| Endpoint list | Groups the endpoints by website. Shows the last 30 checks of each endpoint. |
+| Detail page | Uptime, failed checks, mean, p50, p90, p95, p99, fastest and slowest check, 24-hour chart, incidents and MTTR |
+| Request trace | DNS, connect, TLS and server time, protocol, TLS version and IP address |
+| Certificate | Shows the expiry date. Sends a notification 14 days before. |
+| Events | Receives events from deploys, CI jobs and scripts. Refer to [section 8](#8-events). |
+| Small | Two Swift files, no dependencies, approximately 20 MB of memory |
+| Private | No data collection. Refer to [section 6](#6-privacy). |
 
-## 3. Installation
+## 2. Installation
 
-### 3.1 Install with Terminal (recommended)
+Requirements: macOS 14 or later, Apple silicon or Intel. You do not need an administrator password.
 
-1. Open the Terminal app.
+### 2.1 Install with Terminal (recommended)
+
+1. Open Terminal.
 2. Type this command:
 
    ```sh
@@ -52,12 +46,9 @@ Features:
 
 3. Push the Return key.
 
-Result: Upbar is in `~/Applications`. The Upbar icon shows in the menu bar.
+Result: Upbar is in `~/Applications`. The Upbar icon shows in the menu bar. The script does not use `sudo`. It compares the download with a SHA-256 checksum.
 
-> [!NOTE]
-> The script does not use `sudo`. It compares the download with a SHA-256 checksum before it installs the app.
-
-### 3.2 Install from a browser download
+### 2.2 Install from a browser download
 
 1. Download `Upbar.zip` from the [latest release](https://github.com/josephgoksu/upbar/releases/latest).
 2. Open `Upbar.zip`.
@@ -66,218 +57,139 @@ Result: Upbar is in `~/Applications`. The Upbar icon shows in the menu bar.
 5. In the dialog box, click **Open**.
 
 > [!NOTE]
-> Do steps 4 and 5 one time only. Apple does not notarize Upbar at this time. Thus, macOS blocks the first start of an app that you download with a browser.
+> Do steps 4 and 5 one time only. Apple does not notarize Upbar at this time. Thus, macOS blocks the first start.
 
-### 3.3 Allow notifications
+When Upbar starts for the first time, macOS asks to allow notifications. Click **Allow**.
 
-When Upbar starts for the first time, macOS shows a notification request.
+## 3. Operation
 
-1. In the request, click **Allow**.
+Click the Upbar icon in the menu bar to open the window.
 
-## 4. Operation
-
-### 4.1 Open the Upbar window
-
-1. Click the Upbar icon in the menu bar.
-
-### 4.2 Add an endpoint
-
-1. Open the Upbar window.
-2. Click **+ Add Endpoint**. The keyboard shortcut is ⌘N.
-3. In the **URL** field, type or paste the URL of the endpoint.
-4. Optional: In the **Name** field, type a name. If you do not type a name, Upbar uses the host name.
-5. Optional: In the **Expect** field, type the HTTP status code that the endpoint must return. The default is 200.
-6. Optional: Click **Test now**. The result shows the status code and the response time.
-7. Click **Save**. The keyboard shortcut is the Return key.
-
-Result: Upbar checks the endpoint immediately. Then it checks the endpoint every 60 seconds.
+| Task | Procedure |
+|---|---|
+| Add an endpoint | Click **+ Add Endpoint** (⌘N). Type the URL. Optional: type a name and the expected status code (default 200). Click **Save**. |
+| See the details | Click the endpoint. To go back, click **Back** or push Esc. |
+| Open in the browser | On the detail page, click the compass icon. Alternatively, right-click the endpoint, then select **Open in Browser**. |
+| Edit an endpoint | Move the pointer onto the endpoint, then click the pencil icon. Alternatively, right-click the endpoint, then select **Edit**. |
+| Delete an endpoint | In the editor, click **Delete Endpoint**, then click **Click Again to Delete**. Alternatively, right-click the endpoint, then select **Delete**. |
+| Fold a website | Click the name of the website. Click it again to show the endpoints. |
+| Check all now | Click the arrow icon at the top right (⌘R). |
+| Start at login | Click **⋯**, then select **Open at Login**. |
+| Stop Upbar | Click **⋯**, then select **Quit Upbar**. |
 
 > [!NOTE]
-> If the URL does not start with `http://` or `https://`, Upbar adds `https://`.
+> - If the URL has no `http://` or `https://`, Upbar adds `https://`.
+> - If you change the URL or the expected status code, Upbar deletes the check history. A new name keeps the history.
+> - You cannot undo a delete.
 
-### 4.3 Edit an endpoint
-
-1. Open the Upbar window.
-2. Move the pointer onto the endpoint.
-3. Click the pencil icon. Alternatively, right-click the endpoint, then select **Edit**.
-4. Change the URL, the name or the expected status code.
-5. Click **Save**.
-
-In the editor, click **Test now** to test the endpoint. The **Test** row shows the result.
-
-### 4.3.1 See the details of an endpoint
-
-1. Open the Upbar window.
-2. Click the endpoint.
-
-The **Now** section shows the status, the URL and the expected status code. The **Last 24 hours** section shows the uptime, the number of checks and failed checks, the mean, p50, p90, p95 and p99 response times, and the fastest and slowest check. A chart shows the response time. Red lines show failed checks. Click **Back** or push Esc to go back.
-
-The **Last request** section shows the request phases, the protocol, the TLS version and the IP address of the server. It also shows the expiry date of the certificate. If the request used an open connection, Upbar shows only the server time and the word **reused**.
-
-The **Incidents** row shows the number of outages, the MTTR and the time of the last outage. Below it, Upbar shows the start time and the duration of the last 5 outages. An outage is 2 failed checks in a row, the same rule as the notifications.
-
-> [!NOTE]
-> If you change only the name, Upbar keeps the check history. If you change the URL or the expected status code, Upbar removes the check history.
-
-### 4.4 Delete an endpoint
-
-> [!CAUTION]
-> You cannot undo this procedure.
-
-1. Open the Upbar window.
-2. Move the pointer onto the endpoint.
-3. Click the pencil icon.
-4. Click **Delete Endpoint**.
-5. Click **Click Again to Delete**.
-
-Alternatively, right-click the endpoint, then select **Delete**.
-
-### 4.5 Fold a website
-
-Upbar groups the endpoints by website. For example, `api.markwise.app` and `markwise.app` are in the group **markwise.app**.
-
-1. Open the Upbar window.
-2. Click the name of the website.
-
-Result: Upbar hides the endpoints of that website. Click the name again to show them.
-
-### 4.6 Check all endpoints now
-
-1. Open the Upbar window.
-2. Click the arrow icon at the top right. The keyboard shortcut is ⌘R.
-
-### 4.7 Open an endpoint in the browser
-
-1. Open the Upbar window.
-2. Click the endpoint.
-3. Click the compass icon at the top right. Alternatively, right-click the endpoint, then select **Open in Browser**.
-
-### 4.8 Start Upbar when you log in
-
-1. Open the Upbar window.
-2. Click the **⋯** icon at the bottom right.
-3. Select **Open at Login**.
-
-### 4.9 Stop Upbar
-
-1. Open the Upbar window.
-2. Click the **⋯** icon at the bottom right.
-3. Select **Quit Upbar**.
-
-## 5. Indications
-
-### 5.1 Menu bar icon
+## 4. Indications
 
 | Indication | Meaning |
 |---|---|
-| 7 bars in the menu bar color | All endpoints are up. The height of a bar shows the median response time of one check. |
-| An orange bar | A check failed during that minute. No endpoint is down now. |
-| Red bars and a number | The number shows how many endpoints are down. |
-| Gray dots | Upbar has not completed 7 checks since it started. |
-
-### 5.2 Endpoint status
-
-| Indication | Meaning |
-|---|---|
-| Website name and green **2/2 up** | All endpoints of the website are up. |
-| Website name and gray **1/2 up** | Upbar has not completed the checks of 1 endpoint. |
-| Website name and red **1 down** | 1 endpoint of the website is down. Upbar shows this website first. |
-| Green dot | The endpoint is up. |
-| Red dot and red text | The endpoint is down. The text shows the cause and the time since the endpoint went down. |
-| Gray dot | Upbar has not checked the endpoint yet. |
+| 7 bars in the menu bar color | All endpoints are up. The height of a bar is the median response time of one check. |
+| Orange bar in the menu bar | A check failed during that minute. No endpoint is down now. |
+| Red bars and a number in the menu bar | The number of endpoints that are down |
+| Gray dots in the menu bar | Upbar has not done 7 checks since it started. |
+| Green ring and **All systems up** | All endpoints are up. |
+| Red tint and **2 of 6 down** | 2 endpoints are down. The green part of the ring is the endpoints that are up. |
+| **Offline** | The Mac has no network connection. Upbar stops the checks until the connection is available. |
+| Green **2/2 up** at a website | All endpoints of the website are up. |
+| Gray **1/2 up** at a website | Upbar has not completed the check of 1 endpoint. |
+| Red **1 down** at a website | 1 endpoint is down. Upbar shows this website first. |
+| Red dot and red text | The endpoint is down. The text shows the cause and the time since it went down. |
 | Orange response time | The response time is more than 1 second. |
-| Orange text **Certificate expires in 9 days** | The TLS certificate expires in less than 14 days. |
+| Orange **Certificate expires in 9 days** | The TLS certificate expires in less than 14 days. |
 | Red bar in the history | One check failed. |
 
-### 5.3 Window header
+## 5. How Upbar checks an endpoint
 
-| Indication | Meaning |
+1. Every 60 seconds, Upbar sends a `HEAD` request to each endpoint.
+2. If the status code is not the expected code, Upbar sends a `GET` request. It stops the request after the headers.
+3. If the `GET` status code is not the expected code, the check fails.
+4. After 2 failed checks in sequence, the endpoint is down. Upbar sends a notification.
+5. After 1 successful check, a down endpoint is up. Upbar sends a notification.
+
+Rules:
+
+- Upbar does not follow redirects. A 301 response is status 301.
+- A request fails after 10 seconds with no data, or after 15 seconds in total.
+- A connection error is a failed check.
+- Upbar stops the checks while the Mac is offline.
+
+Statistics on the detail page:
+
+| Item | Calculation |
 |---|---|
-| Green ring and **All systems up** | All endpoints are up. The ring shows the part of the endpoints that are up. |
-| Red tint and **2 of 6 down** | 2 endpoints are down. The green part of the ring shows the endpoints that are up. |
-| **Offline** | The Mac has no network connection. Upbar stops all checks until the connection is available again. |
+| Uptime | Successful checks ÷ all checks in the last 24 hours |
+| p50, p90, p95, p99 | Nearest-rank method, successful checks only |
+| Incident | 2 or more failed checks in sequence, the same rule as the notification |
+| MTTR | Mean duration of the incidents that ended |
+| Last request | Phases of the last check. A **reused** connection shows only the server time. |
 
-## 6. Resource use
-
-These values are from a Mac with 10 endpoints.
+Resource use with 10 endpoints:
 
 | Resource | Value |
 |---|---|
 | Memory | Approximately 20 MB |
-| CPU, between checks | 0% |
-| Network, each minute | Approximately 60 KB for 10 endpoints |
+| CPU | 0% between checks, approximately 0.2% on average |
+| Network | Approximately 60 KB each minute |
 
-Upbar decreases resource use in these ways:
+To see the use of Upbar, click **⋯**. The menu shows the CPU use of Upbar in the last minute and its memory.
 
-- Each check is a `HEAD` request. Thus, the server does not send the page body.
-- Upbar uses the same connection again for the next check.
-- Upbar does not keep a cache or cookies.
-- Upbar stops all checks while the Mac is offline.
-- macOS can move a check by up to 10 seconds. This lets macOS do the check together with other tasks.
+## 6. Privacy
 
-## 7. Privacy
+- Upbar does not collect data. It sends requests only to the endpoints that you add.
+- The list of endpoints is in the `com.josephgoksu.upbar` preferences.
+- The check results of the last 24 hours are in `~/Library/Application Support/Upbar/history.plist`. Each result is a time and a response time.
+- Upbar does not keep cookies, a cache or response bodies.
+- Events go directly from the sender to your Mac. Upbar keeps them in memory only.
+- The receiver token is in `~/Library/Application Support/Upbar/receiver-token`. Only your user can read it.
 
-- Upbar does not collect data.
-- Upbar sends requests only to the endpoints that you add.
-- Upbar keeps the list of endpoints on your Mac, in the `com.josephgoksu.upbar` preferences.
-- Upbar keeps the check results of the last 24 hours in `~/Library/Application Support/Upbar/history.plist`. Each check result is a time and a response time. Upbar deletes results that are older than 24 hours.
-- Upbar does not keep cookies, a cache or the response bodies.
-- Events go directly from the sender to your Mac. Upbar keeps them only in memory. The receiver token is in a file that only your user can read.
+## 7. Troubleshooting
 
-## 8. How Upbar checks an endpoint
+| Problem | Cause | Action |
+|---|---|---|
+| No notifications | Notifications for Upbar are off. | Open **System Settings > Notifications > Upbar**. Turn on **Allow notifications**. |
+| macOS does not open Upbar. | You downloaded Upbar with a browser. | Do [section 2.2](#22-install-from-a-browser-download). |
+| **HTTP 301** or **HTTP 302** | The endpoint sends a redirect. | Use the final URL, or set the expected status code to the redirect code. |
+| An `http://` endpoint shows the `https://` status. | The site uses HSTS. | Use the `https://` URL. |
+| **Open at Login** does not stay on. | macOS must approve the login item. | Open **System Settings > General > Login Items**. Turn on **Upbar**. |
+| **Save** is not available. | The URL or the status code is not correct. | Read the red text. Correct the value. |
+| The test command shows a connection error. | Events are off, or a firewall blocks port 4747. | Turn on events. Allow incoming connections for Upbar in **System Settings > Network > Firewall > Options**. |
+| The test command with the Tailscale address fails on the same Mac. | Tailscale does not send traffic from a Mac to its own address. | On the same Mac, use `http://localhost:4747`. Other devices can use the Tailscale address. |
+| Status 401 | The token is not correct. | Select **⋯ > Copy Test Command** again. |
+| **Another app uses port 4747** | A second copy of Upbar, or a different app, uses the port. | Stop the other app. Upbar tries again every 5 seconds. |
 
-1. Every 60 seconds, Upbar sends a `HEAD` request to each endpoint.
-2. If the status code is the expected status code, the endpoint is up.
-3. If the status code is different, Upbar sends a `GET` request. Upbar stops the request after it receives the headers.
-4. If the status code of the `GET` request is different, the check fails.
-5. After 2 failed checks in sequence, the endpoint is down. Upbar sends a notification.
-6. When a check of a down endpoint is successful, the endpoint is up. Upbar sends a notification.
+## 8. Events
 
-Statistics:
+Upbar can receive events from deploys, CI jobs, scripts and servers. The events go directly to your Mac. No other server is necessary.
 
-- The uptime is the percentage of successful checks in the last 24 hours.
-- p50, p90, p95 and p99 use the nearest-rank method. They use only successful checks.
-- Upbar writes the check results to disk every 10 minutes and when it stops. If the Mac stops unexpectedly, the results of the last 10 minutes are lost.
+### 8.1 Turn on events
 
-Rules:
+1. Click **Events**.
+2. Click **Turn On Events**.
 
-- Upbar does not follow redirects. If an endpoint sends status 301, the status code is 301.
-- A request that does not receive data for 10 seconds fails.
-- A request that does not complete in 15 seconds fails.
-- A connection error is a failed check.
-
-## 9. Events
-
-Upbar can receive events from your deploys, CI jobs, scripts and servers. Upbar receives the events directly on your Mac. No other server is involved.
-
-### 9.1 Turn on events
-
-1. Open the Upbar window.
-2. Click **Events**.
-3. Click **Turn On Events**.
-
-Result: Upbar listens on port 4747. It makes an access token and keeps it in a file that only your user can read.
+Result: Upbar listens on port 4747 and makes an access token. To stop, set **Receiving** to off.
 
 > [!CAUTION]
-> Upbar accepts events from all devices that can connect to your Mac on port 4747. Upbar rejects each request that does not have the correct token. Do not share the token.
+> All devices that can connect to your Mac can send to port 4747. Upbar rejects each request without the correct token. Do not share the token.
 
-### 9.2 Send an event
+### 8.2 Send an event
 
-1. Click the **⋯** icon at the bottom right.
-2. Select **Copy Test Command**.
-3. Paste the command in Terminal, then push the Return key.
+1. Click **⋯**, then select **Copy Test Command**.
+2. Paste the command in Terminal, then push the Return key.
 
-Result: The event shows in the **Events** list. macOS shows a notification.
+Result: The event shows in the **Events** list and as a notification.
 
-The sender must send an HTTP `POST` request to `http://<your-mac>:4747`. Use the `.local` name of your Mac on the same network. Use the Tailscale name of your Mac on a tailnet.
+Send an HTTP `POST` to port 4747 of your Mac. Use the `.local` name on the same network. Use the Tailscale address on a tailnet.
 
-| Item | How to send it |
-|---|---|
-| Token | `Authorization: Bearer <token>` header, or `?token=<token>` in the URL |
-| Title | `Title` header, or `title` in a JSON body |
-| Message | The body as plain text, or `message` in a JSON body |
-| Severity | `Tags` header, or `tags` in a JSON body. Refer to the table below. |
-| Link | `Click` header, or `click` or `url` in a JSON body. Click the event to open the link. |
+| Item | Header | JSON body |
+|---|---|---|
+| Token | `Authorization: Bearer <token>`, or `?token=<token>` in the URL | |
+| Title | `Title` | `title` |
+| Message | Plain-text body | `message` |
+| Severity | `Tags` | `tags` |
+| Link (opens on click) | `Click` | `click` or `url` |
 
 | Tags or priority | Indication |
 |---|---|
@@ -285,107 +197,69 @@ The sender must send an HTTP `POST` request to `http://<your-mac>:4747`. Use the
 | `white_check_mark`, `success`, `ok`, `tada`, `green_circle` | Green check mark |
 | All other events | Blue bell |
 
-Example for a deploy script:
-
 ```sh
 curl -H "Authorization: Bearer $UPBAR_TOKEN" -H "Title: API deploy failed" -H "Tags: x" \
   -d "Health check timed out" http://my-mac.local:4747
 ```
 
-> [!NOTE]
-> If the sender cannot set headers, for example a webhook setting, add `?token=<token>` to the URL. Send JSON with `title` and `message`.
-
 Rules:
 
-- Upbar accepts only `POST` and `PUT` requests.
-- Upbar rejects a request that is larger than 64 KB.
-- Upbar keeps the last 100 events in memory. When Upbar stops, it removes the events.
-- If your Mac is off, asleep or not on the network, the sender gets a connection error. Upbar does not receive the event.
-- To make a new token, select **⋯ > New Token**. The old token stops to operate.
-- To stop the receiver, select **⋯ > Receive Events**.
+- Upbar accepts `POST` and `PUT` requests of 64 KB or less.
+- Upbar keeps the last 100 events in memory. It deletes them when it stops.
+- If your Mac is off or asleep, the sender gets a connection error. Upbar does not receive the event.
+- To make a new token, select **⋯ > New Token**. The old token stops.
 
-### 9.3 Connect Coolify
+### 8.3 Connect Coolify
 
-Coolify sends deploy, backup and server events to a webhook URL. Upbar reads the Coolify fields `success`, `application_name`, `environment` and `deployment_url`.
+Upbar reads the Coolify fields `success`, `application_name`, `environment` and `deployment_url`. The Coolify server must reach your Mac. Use Tailscale on the server and on the Mac.
 
-The Coolify server must reach your Mac. Use Tailscale on the server and on the Mac.
-
-1. In the Events tab of Upbar, find the Tailscale address. For example, `http://100.83.110.12:4747`.
+1. In the **Events** tab, find the Tailscale address, for example `http://100.83.110.12:4747`.
 2. In Coolify, go to **Settings > Advanced > Allowed internal targets**.
-3. Add the Tailscale address of your Mac, for example `100.83.110.12`. Coolify blocks private addresses until you add them.
+3. Add the address of your Mac, for example `100.83.110.12`.
 4. Click **Save changes**.
 5. Go to **Notifications > Webhook**.
-6. In **Webhook URL**, enter the address with your token. For example: `http://100.83.110.12:4747/?token=<token>`.
-7. Select the events. For example, **Deployment success** and **Deployment failure**.
-8. Click **Enable**, then click **Save changes**.
-9. Click **Send Test**.
+6. In **Webhook URL**, type `http://100.83.110.12:4747/?token=<token>`.
+7. Select the events, for example **Deployment success** and **Deployment failure**.
+8. Click **Enable**.
+9. Click **Save changes**.
+10. Click **Send Test**.
 
-Result: Upbar shows a notification for each deploy. A failed deploy shows a red icon. Click the event to open the deployment in Coolify.
+Result: A failed deploy shows a red cross. Click the event to open the deployment in Coolify.
 
 > [!NOTE]
-> To get the token, select **⋯ > Copy Test Command**. The token follows `Bearer`.
+> Coolify blocks private addresses until you add them in step 3. To get the token, select **⋯ > Copy Test Command**. The token follows `Bearer`.
 
-## 10. Troubleshooting
+## 9. Removal
 
-| Problem | Possible cause | Action |
-|---|---|---|
-| Upbar sends no notifications. | Notifications for Upbar are off. | Open **System Settings > Notifications > Upbar**. Turn on **Allow notifications**. |
-| macOS does not open Upbar. | You downloaded Upbar with a browser. | Do the procedure in [section 3.2](#32-install-from-a-browser-download). |
-| An endpoint shows **HTTP 301** or **HTTP 302**. | The endpoint sends a redirect. Upbar does not follow redirects. | Use the final URL. Alternatively, set **Expect** to the redirect status code. |
-| An `http://` endpoint shows the status of the `https://` page. | The site uses HSTS. macOS sends the request with `https://`. | Use the `https://` URL. |
-| The header shows **Offline**. | The Mac has no network connection. | Connect the Mac to a network. Upbar starts the checks again automatically. |
-| **Open at Login** does not stay on. | macOS must approve the login item. | Open **System Settings > General > Login Items**. Turn on **Upbar**. |
-| The **Save** button is not available. | The URL or the expected status code is not correct. | Read the red text below the fields. Correct the value. |
-| The test command shows a connection error. | Events are off, or a firewall blocks port 4747. | Turn on events. In **System Settings > Network > Firewall > Options**, allow incoming connections for Upbar. |
-| The test command shows status 401. | The token is not correct. | Select **⋯ > Copy Test Command** again. |
-
-## 11. Removal
-
-1. Stop Upbar. Refer to [section 4.9](#49-stop-upbar).
-2. In Terminal, type this command, then push the Return key:
+1. Stop Upbar.
+2. In Terminal, type these commands. The second and third commands are optional. They delete the endpoints and the history.
 
    ```sh
    rm -rf ~/Applications/Upbar.app
-   ```
-
-3. Optional: To remove the list of endpoints, type this command, then push the Return key:
-
-   ```sh
    defaults delete com.josephgoksu.upbar
-   ```
-
-4. Optional: To remove the check results, type this command, then push the Return key:
-
-   ```sh
    rm -rf ~/Library/Application\ Support/Upbar
    ```
 
-## 12. Build from the source code
+## 10. Build from the source code
 
 You must have Xcode 16 or the Command Line Tools with Swift 6.
 
 | Command | Result |
 |---|---|
-| `swift run` | Builds and starts Upbar without an app bundle. Notifications show in Terminal. |
+| `swift run` | Starts Upbar without an app bundle. Notifications show in Terminal. |
 | `swift test` | Runs the tests. |
-| `./build.sh` | Builds `dist/Upbar.app` for Apple silicon and Intel, and `dist/Upbar.zip`. |
-| `./build.sh install` | Builds Upbar, installs it in `~/Applications`, and starts it. |
-| `swift scripts/icon.swift` | Draws the app icon and the images in `docs/`. |
-
-Files:
+| `./build.sh` | Builds `dist/Upbar.app` and `dist/Upbar.zip` for Apple silicon and Intel. |
+| `./build.sh install` | Builds Upbar, installs it in `~/Applications` and starts it. |
+| `swift scripts/icon.swift` | Draws the app icon and the social preview. |
 
 | Path | Content |
 |---|---|
-| `Sources/Upbar/Upbar.swift` | Endpoint checks, statistics and the main window |
+| `Sources/Upbar/Upbar.swift` | Checks, statistics and the window |
 | `Sources/Upbar/Events.swift` | The event receiver and the Events list |
 | `Tests/UpbarTests/` | Tests |
 | `Resources/` | `Info.plist` and the app icon |
-| `scripts/icon.swift` | The program that draws the icon |
 
-## 13. Contribution, security and license
+## 11. Contribution, security and license
 
-- To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md).
-- To report a security problem, read [SECURITY.md](SECURITY.md).
-- For the list of changes, read [CHANGELOG.md](CHANGELOG.md).
-- To make a release, read [docs/releasing.md](docs/releasing.md).
+- [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), [CHANGELOG.md](CHANGELOG.md), [docs/releasing.md](docs/releasing.md)
 - Upbar has the [MIT license](LICENSE).
