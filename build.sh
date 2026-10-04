@@ -8,11 +8,12 @@ swift build $ARGS
 APP=dist/Upbar.app
 rm -rf dist && mkdir -p "$APP/Contents/MacOS"
 cp "$(swift build $ARGS --show-bin-path)/Upbar" "$APP/Contents/MacOS/"
-cp Info.plist "$APP/Contents/"
-mkdir -p "$APP/Contents/Resources" && cp Upbar.icns "$APP/Contents/Resources/"
+cp Resources/Info.plist "$APP/Contents/"
+mkdir -p "$APP/Contents/Resources" && cp Resources/Upbar.icns "$APP/Contents/Resources/"
 [ -n "${VERSION:-}" ] && plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 ditto -c -k --keepParent "$APP" dist/Upbar.zip
+(cd dist && shasum -a 256 Upbar.zip > Upbar.zip.sha256)
 if [ "${1:-}" = install ]; then
   pkill -x Upbar || true
   mkdir -p ~/Applications && rm -rf ~/Applications/Upbar.app && cp -R "$APP" ~/Applications/

@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest a change to Upbar.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Upbar must stay small. Read the rules in CONTRIBUTING.md before you submit.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does the change solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution
+      description: Describe the change that you want.
+    validations:
+      required: true

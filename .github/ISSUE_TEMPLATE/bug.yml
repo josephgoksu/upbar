@@ -1,0 +1,35 @@
+name: Bug report
+description: Tell us about a problem in Upbar.
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What occurs? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Add the endpoint https://example.com/health.
+        2. Wait 2 minutes.
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Upbar version
+      description: Find it in Finder. Select Upbar.app, then push ⌘I.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and processor
+      placeholder: macOS 15.5, Apple silicon
+    validations:
+      required: true
