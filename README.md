@@ -82,7 +82,8 @@ When Upbar starts for the first time, macOS shows a notification request.
 3. In the **URL** field, type or paste the URL of the endpoint.
 4. Optional: In the **Name** field, type a name. If you do not type a name, Upbar uses the host name.
 5. Optional: In the **Expect** field, type the HTTP status code that the endpoint must return. The default is 200.
-6. Click **Save**.
+6. Optional: Click **Test now**. The result shows the status code and the response time.
+7. Click **Save**. The keyboard shortcut is the Return key.
 
 Result: Upbar checks the endpoint immediately. Then it checks the endpoint every 60 seconds.
 
@@ -97,6 +98,8 @@ Result: Upbar checks the endpoint immediately. Then it checks the endpoint every
 4. Change the URL, the name or the expected status code.
 5. Click **Save**.
 
+When the editor opens, Upbar tests the endpoint. The **Test** row shows the result.
+
 > [!NOTE]
 > If you change only the name, Upbar keeps the check history. If you change the URL or the expected status code, Upbar removes the check history.
 
@@ -108,8 +111,8 @@ Result: Upbar checks the endpoint immediately. Then it checks the endpoint every
 1. Open the Upbar window.
 2. Move the pointer onto the endpoint.
 3. Click the pencil icon.
-4. Click **Delete**.
-5. Click **Click again to delete**.
+4. Click **Delete Endpoint**.
+5. Click **Click Again to Delete**.
 
 Alternatively, right-click the endpoint, then select **Delete**.
 

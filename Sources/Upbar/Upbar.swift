@@ -212,7 +212,7 @@ struct Round: Equatable {
     let bars = 7, width: CGFloat = 2.5, gap: CGFloat = 1.5, height: CGFloat = 14
     let recent = Array(repeating: nil, count: max(0, bars - rounds.count)) + rounds.suffix(bars).map(Optional.some)
     let times = rounds.compactMap(\.ms).sorted()
-    let peak = CGFloat(max(min(times.last ?? 1, 3 * (times.isEmpty ? 1 : times[times.count / 2])), 1))
+    let peak = CGFloat(max(2 * (times.isEmpty ? 1 : times[times.count / 2]), 1))
     let anyFailed = rounds.suffix(bars).contains(where: \.failed)
     let image = NSImage(size: NSSize(width: CGFloat(bars) * (width + gap) - gap, height: 16), flipped: false) { _ in
         for (i, round) in recent.enumerated() {
@@ -266,6 +266,8 @@ struct Popover: View {
             }
         }
         .frame(width: 340)
+        .fixedSize(horizontal: false, vertical: true)  // the window fits its content, list or editor
+        .background(.thickMaterial)  // readable over any wallpaper or window behind the glass
     }
 
     private var header: some View {
@@ -418,9 +420,9 @@ struct Sparkline: View {
     let history: [Int?]
 
     var body: some View {
-        // Scale to 3x the median so one cold-start spike doesn't flatten the rest; taller bars clip.
+        // Scale to 2x the median: a steady endpoint shows half-height bars, spikes stand out, outliers clip.
         let times = history.compactMap { $0 }.sorted()
-        let peak = CGFloat(max(min(times.last ?? 1, 3 * (times.isEmpty ? 1 : times[times.count / 2])), 1))
+        let peak = CGFloat(max(2 * (times.isEmpty ? 1 : times[times.count / 2]), 1))
         HStack(alignment: .bottom, spacing: 1) {
             ForEach(Array(history.enumerated()), id: \.offset) { _, ms in
                 Capsule()
@@ -440,6 +442,8 @@ struct Editor: View {
     let done: (Action) -> Void
     @FocusState private var urlFocused: Bool
     @State private var confirmDelete = false
+    @State private var testResult: Health?
+    @State private var testing = false
 
     private var url: URL? {
         URL(string: normalizeURL(endpoint.url)).flatMap { ["http", "https"].contains($0.scheme) && $0.host() != nil ? $0 : nil }
@@ -449,47 +453,83 @@ struct Editor: View {
     private var expected: Binding<String> {
         Binding { endpoint.expected == 0 ? "" : String(endpoint.expected) } set: { endpoint.expected = Int($0.filter(\.isNumber).prefix(3)) ?? 0 }
     }
+    private var saved: Endpoint {
+        var saved = endpoint
+        saved.url = normalizeURL(saved.url)
+        if saved.name.trimmingCharacters(in: .whitespaces).isEmpty { saved.name = url?.host() ?? saved.url }
+        return saved
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(isNew ? "Add endpoint" : "Edit endpoint").font(.headline)
-            Form {
-                TextField("URL", text: $endpoint.url, prompt: Text("https://api.example.com/health")).focused($urlFocused)
-                TextField("Name", text: $endpoint.name, prompt: Text(url?.host() ?? "Optional"))
-                TextField("Expect", text: expected, prompt: Text("200"))
-            }
-            Group {
-                if url == nil, !["", "https://"].contains(endpoint.url) {
-                    Text(verbatim: "Enter a full URL, like https://example.com/health").foregroundStyle(.red)
-                } else if !(100...599).contains(endpoint.expected) {
-                    Text("Expect an HTTP status code between 100 and 599.").foregroundStyle(.red)
-                } else {
-                    Text("Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.").foregroundStyle(.secondary)
-                }
-            }
-            .font(.caption)
+        VStack(spacing: 0) {
             HStack {
-                if !isNew {
-                    // Two clicks: the first arms it, so a stray click can't delete.
-                    Button(confirmDelete ? "Click again to delete" : "Delete", role: .destructive) {
-                        if confirmDelete { done(.delete) } else { confirmDelete = true }
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
-                }
-                Spacer()
                 Button("Cancel") { done(.cancel) }.keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    var saved = endpoint
-                    saved.url = normalizeURL(saved.url)
-                    if saved.name.trimmingCharacters(in: .whitespaces).isEmpty { saved.name = url?.host() ?? saved.url }
-                    done(.save(saved))
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!valid)
+                Spacer()
+                Text(isNew ? "Add Endpoint" : "Edit Endpoint").font(.headline)
+                Spacer()
+                Button("Save") { done(.save(saved)) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!valid)
             }
+            .padding(12)
+            Divider()
+            Form {
+                Section {
+                    TextField("URL", text: $endpoint.url, prompt: Text(verbatim: "https://api.example.com/health"))
+                        .focused($urlFocused)
+                    TextField("Name", text: $endpoint.name, prompt: Text(url?.host() ?? "Optional"))
+                } footer: {
+                    if url == nil, !["", "https://"].contains(endpoint.url) {
+                        Text(verbatim: "Enter a full URL, like https://example.com/health").foregroundStyle(.red)
+                    }
+                }
+                Section {
+                    TextField("Expected status", text: expected, prompt: Text("200"))
+                    LabeledContent("Test") {
+                        HStack(spacing: 8) {
+                            testLabel
+                            Button("Test now") { Task { await test() } }.disabled(url == nil || testing)
+                        }
+                    }
+                } footer: {
+                    Text(!(100...599).contains(endpoint.expected) ? "Expect an HTTP status code between 100 and 599."
+                         : "Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
+                        .foregroundStyle(!(100...599).contains(endpoint.expected) ? .red : .secondary)
+                }
+                if !isNew {
+                    Section {
+                        // Two clicks: the first arms it, so a stray click can't delete.
+                        Button(confirmDelete ? "Click Again to Delete" : "Delete Endpoint", role: .destructive) {
+                            if confirmDelete { done(.delete) } else { confirmDelete = true }
+                        }
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
         }
-        .padding(12)
         .onAppear { urlFocused = true }
+        .task { if !isNew { await test() } }  // show the current state of an existing endpoint right away
+        .onChange(of: endpoint.url) { testResult = nil }
+        .onChange(of: endpoint.expected) { testResult = nil }
+    }
+
+    @ViewBuilder private var testLabel: some View {
+        if testing {
+            ProgressView().controlSize(.small)
+        } else if case .up(let code, let ms) = testResult {
+            Label("\(code) · \(ms) ms", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        } else if case .down(let reason) = testResult {
+            Label(reason, systemImage: "xmark.circle.fill").foregroundStyle(.red).lineLimit(1)
+        }
+    }
+
+    private func test() async {
+        testing = true
+        testResult = await probe(saved)
+        testing = false
     }
 }

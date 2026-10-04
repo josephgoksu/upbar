@@ -7,6 +7,13 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 ### Added
 
 - The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
+- The editor has a **Test now** button. It shows the status code and the response time of the endpoint.
+
+### Changed
+
+- The editor uses grouped sections and a title bar with **Cancel** and **Save**.
+- The window has a solid background and fits its content.
+- The response-time bars use 2 times the median as the full height. Thus, small changes are visible.
 
 ## [0.1.1] - 2026-10-04
 
