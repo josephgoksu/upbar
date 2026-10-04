@@ -114,6 +114,7 @@ Rules:
 - Upbar does not follow redirects. A 301 response is status 301.
 - A request fails after 10 seconds with no data, or after 15 seconds in total.
 - A connection error is a failed check.
+- If all endpoints on 2 or more websites fail with a connection error in the same check, Upbar ignores that check. The cause is the network of your Mac, not the endpoints. An HTTP error is always a failed check.
 - Upbar stops the checks while the Mac is offline.
 
 Statistics on the detail page:

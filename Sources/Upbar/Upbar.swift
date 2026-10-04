@@ -148,6 +148,15 @@ func incidents(_ samples: [Sample]) -> [Incident] {
     return out
 }
 
+/// True when every endpoint failed with no HTTP answer and they are on 2 or more websites.
+/// Real outages rarely hit unrelated sites in the same minute; a broken network on this Mac does.
+/// ponytail: an HTTP error (Cloudflare 502, 503) is always an answer, so a down origin behind a proxy still alerts.
+/// One shared server without a proxy that goes down for every site is skipped too; add a reachability probe if that matters.
+func localFailure(_ results: [(url: String, health: Health)]) -> Bool {
+    guard Set(results.map { site($0.url) }).count >= 2 else { return false }
+    return results.allSatisfy { if case .down(let reason) = $0.health { !reason.hasPrefix("HTTP ") } else { false } }
+}
+
 /// Days until a certificate expires at which Upbar warns.
 let certWarningDays = 14
 
@@ -300,6 +309,8 @@ final class Store {
             return out
         }
         let results = probes.mapValues(\.0)
+        // The whole round failed on this Mac's side: skip it, so a Wi-Fi or DNS blip doesn't show as an outage everywhere.
+        guard !localFailure(snapshot.compactMap { endpoint in results[endpoint.id].map { (endpoint.url, $0) } }) else { return }
         for endpoint in snapshot {
             guard let result = results[endpoint.id], endpoints.contains(endpoint) else { continue }
             observe(endpoint, probes[endpoint.id]?.1)

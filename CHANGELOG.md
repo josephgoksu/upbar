@@ -4,6 +4,12 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-04
+
+### Fixed
+
+- A network problem on your Mac showed as an incident on all endpoints. Upbar now ignores a check in which all endpoints on 2 or more websites fail with a connection error.
+
 ## [0.1.2] - 2026-10-04
 
 ### Added
@@ -55,7 +61,8 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 - Open at Login setting.
 - Installation script that does not use `sudo` and that compares a SHA-256 checksum.
 
-[Unreleased]: https://github.com/josephgoksu/upbar/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/josephgoksu/upbar/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/josephgoksu/upbar/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/josephgoksu/upbar/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/josephgoksu/upbar/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/josephgoksu/upbar/releases/tag/v0.1.0

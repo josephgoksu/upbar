@@ -55,3 +55,11 @@ import Testing
     #expect(incidentSummary([Incident(start: 180, end: 360)]).hasPrefix("1 · MTTR 3m"))
     #expect(incidentSummary([]) == "None")
 }
+
+@Test func aRoundWhereEverySiteFailsLocallyIsSkipped() {
+    let offline = Health.down("The Internet connection appears to be offline.")
+    #expect(localFailure([("https://a.com", offline), ("https://b.org", offline)]))
+    #expect(!localFailure([("https://a.com", offline), ("https://b.org", .down("HTTP 503"))]), "an HTTP answer means the network works")
+    #expect(!localFailure([("https://a.com", offline), ("https://b.org", .up(code: 200, ms: 50))]))
+    #expect(!localFailure([("https://a.com", offline), ("https://api.a.com", offline)]), "one website can really be down")
+}
