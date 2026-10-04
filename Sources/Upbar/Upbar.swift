@@ -1,0 +1,303 @@
+import ServiceManagement
+import SwiftUI
+import UserNotifications
+
+// MARK: - Checking
+
+struct Endpoint: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name = ""
+    var url = "https://"
+    var expected = 200
+}
+
+enum Health: Equatable {
+    case unknown, up(code: Int, ms: Int), down(String)
+    var isDown: Bool { if case .down = self { true } else { false } }
+}
+
+/// Failed checks in a row before an endpoint counts as down, so one dropped request doesn't alert.
+let failureThreshold = 2
+
+/// Folds one probe result into the shown health and the failure streak.
+func step(_ shown: Health, streak: Int, probe: Health) -> (Health, Int) {
+    guard probe.isDown else { return (probe, 0) }
+    return (streak + 1 >= failureThreshold ? probe : shown, streak + 1)
+}
+
+/// Redirects aren't followed, so the status code is exactly what the URL returns.
+final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
+    func urlSession(_: URLSession, task _: URLSessionTask, willPerformHTTPRedirection _: HTTPURLResponse,
+                    newRequest _: URLRequest) async -> URLRequest? { nil }
+}
+
+let session: URLSession = {
+    let config = URLSessionConfiguration.ephemeral
+    config.timeoutIntervalForRequest = 10
+    config.requestCachePolicy = .reloadIgnoringLocalCacheData
+    return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
+}()
+
+func probe(_ endpoint: Endpoint) async -> Health {
+    guard let url = URL(string: endpoint.url), url.host() != nil else { return .down("Invalid URL") }
+    let start = ContinuousClock.now
+    do {
+        let (_, response) = try await session.data(from: url)
+        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        let ms = Int((ContinuousClock.now - start) / .milliseconds(1))
+        return code == endpoint.expected ? .up(code: code, ms: ms) : .down("HTTP \(code), expected \(endpoint.expected)")
+    } catch {
+        return .down(error.localizedDescription)
+    }
+}
+
+/// `swift run` has no app bundle, and notifications and login items need one.
+let isApp = Bundle.main.bundleURL.pathExtension == "app"
+
+@MainActor @Observable
+final class Store {
+    var endpoints: [Endpoint] { didSet { UserDefaults.standard.set(try? JSONEncoder().encode(endpoints), forKey: "endpoints") } }
+    private(set) var health: [UUID: Health] = [:]
+    private(set) var lastCheck: Date?
+    private var streak: [UUID: Int] = [:]
+    private var checking = false
+
+    init() {
+        let saved = UserDefaults.standard.data(forKey: "endpoints")
+        endpoints = saved.flatMap { try? JSONDecoder().decode([Endpoint].self, from: $0) } ?? []
+        if isApp { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
+        Task {
+            while true {
+                await check()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
+    }
+
+    var downCount: Int { endpoints.count { health[$0.id]?.isDown == true } }
+    var sorted: [Endpoint] { endpoints.filter { health[$0.id]?.isDown == true } + endpoints.filter { health[$0.id]?.isDown != true } }
+
+    func check() async {
+        guard !checking else { return }
+        checking = true
+        defer { checking = false }
+        let snapshot = endpoints
+        let results = await withTaskGroup(of: (UUID, Health).self) { group in
+            for endpoint in snapshot { group.addTask { (endpoint.id, await probe(endpoint)) } }
+            var out: [UUID: Health] = [:]
+            for await (id, result) in group { out[id] = result }
+            return out
+        }
+        for endpoint in snapshot {
+            guard let result = results[endpoint.id], endpoints.contains(endpoint) else { continue }
+            let before = health[endpoint.id] ?? .unknown
+            let (after, count) = step(before, streak: streak[endpoint.id, default: 0], probe: result)
+            (health[endpoint.id], streak[endpoint.id]) = (after, count)
+            if case .down(let reason) = after, !before.isDown { notify("\(endpoint.name) is down", reason) }
+            if before.isDown, case .up = after { notify("\(endpoint.name) is back up", endpoint.url) }
+        }
+        lastCheck = .now
+    }
+
+    func save(_ endpoint: Endpoint) {
+        if let i = endpoints.firstIndex(where: { $0.id == endpoint.id }) { endpoints[i] = endpoint } else { endpoints.append(endpoint) }
+        (health[endpoint.id], streak[endpoint.id]) = (nil, nil)
+        Task { health[endpoint.id] = await probe(endpoint) }  // show it right away, without waiting for the next round
+    }
+
+    func delete(_ endpoint: Endpoint) {
+        endpoints.removeAll { $0.id == endpoint.id }
+        (health[endpoint.id], streak[endpoint.id]) = (nil, nil)
+    }
+
+    var launchAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set { try? newValue ? SMAppService.mainApp.register() : SMAppService.mainApp.unregister() }
+    }
+
+    private func notify(_ title: String, _ body: String) {
+        guard isApp else { return print("\(title): \(body)") }
+        let content = UNMutableNotificationContent()
+        (content.title, content.body, content.sound) = (title, body, .default)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+    }
+}
+
+// MARK: - UI
+
+@main
+struct Upbar: App {
+    @State private var store = Store()
+
+    var body: some Scene {
+        MenuBarExtra {
+            Popover().environment(store)
+        } label: {
+            if store.downCount > 0 { Image(nsImage: alertIcon) } else { Image(systemName: "checkmark.circle") }
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+/// Red in the menu bar. Template images are always monochrome, so this one opts out.
+@MainActor let alertIcon: NSImage = {
+    let image = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: "Endpoint down")!
+        .withSymbolConfiguration(.init(paletteColors: [.systemRed]))!
+    image.isTemplate = false
+    return image
+}()
+
+struct Popover: View {
+    @Environment(Store.self) private var store
+    @State private var editing: Endpoint?
+
+    var body: some View {
+        Group {
+            if let endpoint = editing {
+                Editor(endpoint: endpoint) { saved in
+                    if let saved { store.save(saved) }
+                    editing = nil
+                }
+            } else {
+                VStack(spacing: 0) {
+                    header
+                    Divider()
+                    list
+                    Divider()
+                    footer
+                }
+            }
+        }
+        .frame(width: 320)
+    }
+
+    private var header: some View {
+        let down = store.downCount > 0
+        return HStack(spacing: 10) {
+            Image(systemName: down ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .font(.title2)
+                .foregroundStyle(down ? .red : .green)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(down ? "\(store.downCount) of \(store.endpoints.count) down" : store.endpoints.isEmpty ? "Upbar" : "All systems operational").font(.headline)
+                if let last = store.lastCheck {
+                    Text("Checked \(last, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Button("Check now", systemImage: "arrow.clockwise") { Task { await store.check() } }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .keyboardShortcut("r")
+        }
+        .padding(12)
+    }
+
+    @ViewBuilder private var list: some View {
+        if store.endpoints.isEmpty {
+            Text("Nothing to watch yet.\nAdd a URL and Upbar checks it every minute.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(24)
+        } else {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(store.sorted) { endpoint in
+                        Row(endpoint: endpoint, health: store.health[endpoint.id] ?? .unknown)
+                            .contextMenu {
+                                Button("Edit…") { editing = endpoint }
+                                Button("Delete", role: .destructive) { store.delete(endpoint) }
+                            }
+                    }
+                }
+                .padding(6)
+            }
+            .frame(maxHeight: 400)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var footer: some View {
+        @Bindable var store = store
+        return HStack {
+            Button("Add", systemImage: "plus") { editing = Endpoint() }.keyboardShortcut("n")
+            Spacer()
+            Toggle("Open at login", isOn: $store.launchAtLogin).toggleStyle(.checkbox).disabled(!isApp)
+            Button("Quit") { NSApp.terminate(nil) }.keyboardShortcut("q")
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+}
+
+struct Row: View {
+    let endpoint: Endpoint
+    let health: Health
+    @State private var hovering = false
+
+    var body: some View {
+        Button { if let url = URL(string: endpoint.url) { NSWorkspace.shared.open(url) } } label: {
+            HStack(spacing: 10) {
+                Circle().fill(color).frame(width: 8, height: 8)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(endpoint.name).lineLimit(1)
+                    Text(detail).font(.caption).foregroundStyle(health.isDown ? .red : .secondary).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if case .up(let code, let ms) = health {
+                    Text("\(code) · \(ms) ms").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .background(hovering ? Color.primary.opacity(0.07) : .clear, in: .rect(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+
+    private var detail: String {
+        if case .down(let reason) = health { return reason }
+        return endpoint.url.replacingOccurrences(of: "https://", with: "")
+    }
+
+    private var color: Color {
+        switch health {
+        case .unknown: .secondary.opacity(0.5)
+        case .up: .green
+        case .down: .red
+        }
+    }
+}
+
+struct Editor: View {
+    @State var endpoint: Endpoint
+    let done: (Endpoint?) -> Void
+
+    private var valid: Bool {
+        !endpoint.name.trimmingCharacters(in: .whitespaces).isEmpty && (100...599).contains(endpoint.expected)
+            && URL(string: endpoint.url).map { ["http", "https"].contains($0.scheme) && $0.host() != nil } == true
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(endpoint.name.isEmpty ? "New endpoint" : endpoint.name).font(.headline)
+            Form {
+                TextField("Name", text: $endpoint.name, prompt: Text("My API"))
+                TextField("URL", text: $endpoint.url, prompt: Text("https://api.example.com/health"))
+                TextField("Expect", value: $endpoint.expected, format: .number.grouping(.never), prompt: Text("200"))
+            }
+            Text("Down after \(failureThreshold) failed checks in a row. Redirects aren't followed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { done(nil) }.keyboardShortcut(.cancelAction)
+                Button("Save") { done(endpoint) }.keyboardShortcut(.defaultAction).disabled(!valid)
+            }
+        }
+        .padding(12)
+    }
+}
