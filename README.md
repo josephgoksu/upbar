@@ -296,6 +296,27 @@ Rules:
 - To make a new token, select **⋯ > New Token**. The old token stops to operate.
 - To stop the receiver, select **⋯ > Receive Events**.
 
+### 9.3 Connect Coolify
+
+Coolify sends deploy, backup and server events to a webhook URL. Upbar reads the Coolify fields `success`, `application_name`, `environment` and `deployment_url`.
+
+The Coolify server must reach your Mac. Use Tailscale on the server and on the Mac.
+
+1. In the Events tab of Upbar, find the Tailscale address. For example, `http://100.83.110.12:4747`.
+2. In Coolify, go to **Settings > Advanced > Allowed internal targets**.
+3. Add the Tailscale address of your Mac, for example `100.83.110.12`. Coolify blocks private addresses until you add them.
+4. Click **Save changes**.
+5. Go to **Notifications > Webhook**.
+6. In **Webhook URL**, enter the address with your token. For example: `http://100.83.110.12:4747/?token=<token>`.
+7. Select the events. For example, **Deployment success** and **Deployment failure**.
+8. Click **Enable**, then click **Save changes**.
+9. Click **Send Test**.
+
+Result: Upbar shows a notification for each deploy. A failed deploy shows a red icon. Click the event to open the deployment in Coolify.
+
+> [!NOTE]
+> To get the token, select **⋯ > Copy Test Command**. The token follows `Bearer`.
+
 ## 10. Troubleshooting
 
 | Problem | Possible cause | Action |

@@ -61,11 +61,14 @@ func makeEvent(_ request: Request) -> Event {
                       priority: (request.headers["priority"] ?? request.headers["x-priority"]).flatMap { Int($0) },
                       click: request.headers["click"] ?? request.headers["x-click"])
     if let json = try? JSONSerialization.jsonObject(with: request.body) as? [String: Any] {
-        event.title = event.title ?? json["title"] as? String
+        // Field names from ntfy and common webhooks. Coolify sends success, application_name and deployment_url.
+        event.title = event.title ?? (json["title"] ?? json["application_name"] ?? json["name"]) as? String
         event.message = (json["message"] ?? json["text"] ?? json["body"] ?? json["description"]) as? String
+        if let environment = json["environment"] as? String, let message = event.message { event.message = "\(message) · \(environment)" }
         event.tags += (json["tags"] as? [String]) ?? []
+        if let success = json["success"] as? Bool { event.tags.append(success ? "success" : "failure") }
         event.priority = event.priority ?? json["priority"] as? Int
-        event.click = event.click ?? (json["click"] ?? json["url"]) as? String
+        event.click = event.click ?? (json["click"] ?? json["url"] ?? json["deployment_url"]) as? String
         if event.title == nil && event.message == nil { event.message = String(data: request.body, encoding: .utf8) }
     } else {
         event.message = String(data: request.body, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)

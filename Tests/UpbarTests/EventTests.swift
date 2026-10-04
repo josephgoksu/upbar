@@ -29,3 +29,13 @@ import Testing
     let mode = try FileManager.default.attributesOfItem(atPath: TokenFile.url.path)[.posixPermissions] as? Int
     #expect(mode == 0o600)
 }
+
+@Test func coolifyWebhooksBecomeEvents() {
+    // The payload of Coolify's DeploymentFailed notification (app/Notifications/Application/DeploymentFailed.php).
+    let body = #"{"success":false,"message":"Deployment failed","event":"deployment_failed","application_name":"markwise-api","deployment_url":"https://cp.example.com/project/1/deployment/abc","project":"markwise","environment":"production"}"#
+    let event = makeEvent(Request(method: "POST", target: "/?token=t", headers: ["content-type": "application/json"], body: Data(body.utf8)))
+    #expect(event.title == "markwise-api")
+    #expect(event.message == "Deployment failed · production")
+    #expect(event.severity == .failure)
+    #expect(event.click == "https://cp.example.com/project/1/deployment/abc")
+}

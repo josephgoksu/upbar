@@ -6,6 +6,7 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ### Added
 
+- Upbar reads Coolify webhooks: the app name, the environment, success or failure, and a link to the deployment. README section 9.3 shows the setup.
 - Request traces: the editor shows the DNS, connect, TLS and server time of the last request, with the protocol, TLS version and IP address.
 - Upbar shows when the TLS certificate expires and sends a notification 14 days before.
 - The editor counts the incidents of the last 24 hours and shows the mean time to recovery (MTTR).
