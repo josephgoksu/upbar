@@ -246,10 +246,11 @@ final class Store {
 @main
 struct Upbar: App {
     @State private var store = Store()
+    @State private var receiver = Receiver()
 
     var body: some Scene {
         MenuBarExtra {
-            Popover().environment(store)
+            Popover().environment(store).environment(receiver)
         } label: {
             Image(nsImage: menuBarIcon(store.rounds, down: store.downCount))
             if store.downCount > 0 { Text("\(store.downCount)") }
@@ -298,7 +299,11 @@ struct Round: Equatable {
 
 struct Popover: View {
     @Environment(Store.self) private var store
+    @Environment(Receiver.self) private var receiver
     @State private var editing: Endpoint?
+    @State private var tab = Tab.endpoints
+
+    enum Tab { case endpoints, events }
 
     var body: some View {
         Group {
@@ -316,11 +321,20 @@ struct Popover: View {
             } else {
                 VStack(spacing: 0) {
                     header
+                    Picker("View", selection: $tab) {
+                        Text("Endpoints").tag(Tab.endpoints)
+                        Text(receiver.unread > 0 && tab != .events ? "Events (\(receiver.unread))" : "Events").tag(Tab.events)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding([.horizontal, .bottom], 12)
                     Divider()
-                    list
+                    if tab == .endpoints { list } else { EventList() }
                     Divider()
                     footer
                 }
+                .onChange(of: tab) { if tab == .events { receiver.unread = 0 } }
+                .onChange(of: receiver.unread) { if tab == .events { receiver.unread = 0 } }
             }
         }
         .frame(width: 340)
@@ -386,13 +400,27 @@ struct Popover: View {
 
     private var footer: some View {
         @Bindable var store = store
+        @Bindable var receiver = receiver
         return HStack {
-            Button("Add", systemImage: "plus") { editing = Endpoint() }
-                .keyboardShortcut("n")
-                .help("Add endpoint (⌘N)")
+            if tab == .endpoints {
+                Button("Add", systemImage: "plus") { editing = Endpoint() }
+                    .keyboardShortcut("n")
+                    .help("Add endpoint (⌘N)")
+            } else if !receiver.events.isEmpty {
+                Button("Clear", systemImage: "trash") { receiver.clear() }
+            }
             Spacer()
             Menu {
                 Toggle("Open at Login", isOn: $store.launchAtLogin).disabled(!isApp)
+                Section("Events") {
+                    Toggle("Receive Events", isOn: $receiver.enabled)
+                    Button("Copy Test Command") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(receiver.curlExample(token: receiver.token), forType: .string)
+                    }
+                    .disabled(!receiver.enabled)
+                    Button("New Token") { receiver.newToken() }.disabled(!receiver.enabled)
+                }
                 Divider()
                 Button("Quit Upbar") { NSApp.terminate(nil) }.keyboardShortcut("q")
             } label: {

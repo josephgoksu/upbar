@@ -6,7 +6,7 @@ Thank you for your help with Upbar. Read this guide before you start.
 
 Upbar must stay small. Each change must obey these rules:
 
-- Keep all of the app in `Sources/Upbar/Upbar.swift`.
+- Keep the app in `Sources/Upbar/`. Add a file only for a separate feature.
 - Do not add dependencies.
 - Do not add a setting if a good default value is possible.
 - Do not increase the memory, CPU or network use.

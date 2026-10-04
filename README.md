@@ -25,7 +25,8 @@ Features:
 - Upbar shows the uptime and the p50, p95 and p99 response times of the last 24 hours.
 - Upbar uses a small quantity of memory, CPU and network. Refer to [section 6](#6-resource-use).
 - Upbar does not collect data. Refer to [section 7](#7-privacy).
-- The source code is one Swift file. It has no dependencies.
+- Upbar can receive events from your deploys, CI jobs and scripts. Refer to [section 9](#9-events).
+- The source code is two Swift files. It has no dependencies.
 
 ## 2. Requirements
 
@@ -193,6 +194,7 @@ Upbar decreases resource use in these ways:
 - Upbar keeps the list of endpoints on your Mac, in the `com.josephgoksu.upbar` preferences.
 - Upbar keeps the check results of the last 24 hours in `~/Library/Application Support/Upbar/history.plist`. Each check result is a time and a response time. Upbar deletes results that are older than 24 hours.
 - Upbar does not keep cookies, a cache or the response bodies.
+- Events go directly from the sender to your Mac. Upbar keeps them only in memory. The receiver token is in the Keychain.
 
 ## 8. How Upbar checks an endpoint
 
@@ -216,7 +218,65 @@ Rules:
 - A request that does not complete in 15 seconds fails.
 - A connection error is a failed check.
 
-## 9. Troubleshooting
+## 9. Events
+
+Upbar can receive events from your deploys, CI jobs, scripts and servers. Upbar receives the events directly on your Mac. No other server is involved.
+
+### 9.1 Turn on events
+
+1. Open the Upbar window.
+2. Click **Events**.
+3. Click **Turn On Events**.
+
+Result: Upbar listens on port 4747. It makes an access token and keeps it in the Keychain.
+
+> [!CAUTION]
+> Upbar accepts events from all devices that can connect to your Mac on port 4747. Upbar rejects each request that does not have the correct token. Do not share the token.
+
+### 9.2 Send an event
+
+1. Click the **⋯** icon at the bottom right.
+2. Select **Copy Test Command**.
+3. Paste the command in Terminal, then push the Return key.
+
+Result: The event shows in the **Events** list. macOS shows a notification.
+
+The sender must send an HTTP `POST` request to `http://<your-mac>:4747`. Use the `.local` name of your Mac on the same network. Use the Tailscale name of your Mac on a tailnet.
+
+| Item | How to send it |
+|---|---|
+| Token | `Authorization: Bearer <token>` header, or `?token=<token>` in the URL |
+| Title | `Title` header, or `title` in a JSON body |
+| Message | The body as plain text, or `message` in a JSON body |
+| Severity | `Tags` header, or `tags` in a JSON body. Refer to the table below. |
+| Link | `Click` header, or `click` or `url` in a JSON body. Click the event to open the link. |
+
+| Tags or priority | Indication |
+|---|---|
+| `x`, `failure`, `failed`, `error`, `warning`, `rotating_light`, `red_circle`, or `Priority` 4 or 5 | Red cross |
+| `white_check_mark`, `success`, `ok`, `tada`, `green_circle` | Green check mark |
+| All other events | Blue bell |
+
+Example for a deploy script:
+
+```sh
+curl -H "Authorization: Bearer $UPBAR_TOKEN" -H "Title: API deploy failed" -H "Tags: x" \
+  -d "Health check timed out" http://my-mac.local:4747
+```
+
+> [!NOTE]
+> If the sender cannot set headers, for example a webhook setting, add `?token=<token>` to the URL. Send JSON with `title` and `message`.
+
+Rules:
+
+- Upbar accepts only `POST` and `PUT` requests.
+- Upbar rejects a request that is larger than 64 KB.
+- Upbar keeps the last 100 events in memory. When Upbar stops, it removes the events.
+- If your Mac is off, asleep or not on the network, the sender gets a connection error. Upbar does not receive the event.
+- To make a new token, select **⋯ > New Token**. The old token stops to operate.
+- To stop the receiver, select **⋯ > Receive Events**.
+
+## 10. Troubleshooting
 
 | Problem | Possible cause | Action |
 |---|---|---|
@@ -227,8 +287,11 @@ Rules:
 | The header shows **Offline**. | The Mac has no network connection. | Connect the Mac to a network. Upbar starts the checks again automatically. |
 | **Open at Login** does not stay on. | macOS must approve the login item. | Open **System Settings > General > Login Items**. Turn on **Upbar**. |
 | The **Save** button is not available. | The URL or the expected status code is not correct. | Read the red text below the fields. Correct the value. |
+| The test command shows a connection error. | Events are off, or a firewall blocks port 4747. | Turn on events. In **System Settings > Network > Firewall > Options**, allow incoming connections for Upbar. |
+| The test command shows status 401. | The token is not correct. | Select **⋯ > Copy Test Command** again. |
+| macOS asks for the Keychain password after an update. | The app has a new signature. Builds that are not notarized change the signature. | Click **Always Allow**. |
 
-## 10. Removal
+## 11. Removal
 
 1. Stop Upbar. Refer to [section 4.8](#48-stop-upbar).
 2. In Terminal, type this command, then push the Return key:
@@ -249,7 +312,7 @@ Rules:
    rm -rf ~/Library/Application\ Support/Upbar
    ```
 
-## 11. Build from the source code
+## 12. Build from the source code
 
 You must have Xcode 16 or the Command Line Tools with Swift 6.
 
@@ -265,12 +328,13 @@ Files:
 
 | Path | Content |
 |---|---|
-| `Sources/Upbar/Upbar.swift` | All of the app |
+| `Sources/Upbar/Upbar.swift` | Endpoint checks, statistics and the main window |
+| `Sources/Upbar/Events.swift` | The event receiver and the Events list |
 | `Tests/UpbarTests/` | Tests |
 | `Resources/` | `Info.plist` and the app icon |
 | `scripts/icon.swift` | The program that draws the icon |
 
-## 12. Contribution, security and license
+## 13. Contribution, security and license
 
 - To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md).
 - To report a security problem, read [SECURITY.md](SECURITY.md).

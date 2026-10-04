@@ -18,8 +18,9 @@ Result: You get a response in 7 days. When a fix is available, we publish a rele
 
 ## 3. Scope
 
-Upbar sends requests only to the URLs that the user adds. Upbar keeps no credentials, cookies or response bodies. These items are in scope:
+Upbar sends requests only to the URLs that the user adds. Upbar keeps one credential: the receiver token, in the Keychain. These items are in scope:
 
 - The app (`Sources/`)
+- The event receiver on port 4747 (`Sources/Upbar/Events.swift`)
 - The installation script (`install.sh`)
 - The build and release workflows (`build.sh`, `.github/workflows/`)
