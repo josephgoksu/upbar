@@ -9,6 +9,7 @@ APP=dist/Upbar.app
 rm -rf dist && mkdir -p "$APP/Contents/MacOS"
 cp "$(swift build $ARGS --show-bin-path)/Upbar" "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
+mkdir -p "$APP/Contents/Resources" && cp Upbar.icns "$APP/Contents/Resources/"
 [ -n "${VERSION:-}" ] && plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 ditto -c -k --keepParent "$APP" dist/Upbar.zip

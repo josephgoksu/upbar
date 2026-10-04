@@ -1,3 +1,4 @@
+import Network
 import ServiceManagement
 import SwiftUI
 import UserNotifications
@@ -34,16 +35,29 @@ final class NoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
 let session: URLSession = {
     let config = URLSessionConfiguration.ephemeral
     config.timeoutIntervalForRequest = 10
+    config.timeoutIntervalForResource = 15
     config.requestCachePolicy = .reloadIgnoringLocalCacheData
+    config.urlCache = nil
+    config.httpCookieStorage = nil
+    config.httpShouldSetCookies = false
     return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
 }()
 
 func probe(_ endpoint: Endpoint) async -> Health {
     guard let url = URL(string: endpoint.url), url.host() != nil else { return .down("Invalid URL") }
-    let start = ContinuousClock.now
+    var start = ContinuousClock.now
     do {
-        let (_, response) = try await session.data(from: url)
-        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        // HEAD first: same status, no body. Some servers answer HEAD differently (405, or even 400), so any
+        // unexpected status is confirmed with a GET that stops after the headers. A down verdict is always a real GET.
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        var code = try await (session.data(for: request).1 as? HTTPURLResponse)?.statusCode ?? 0
+        if code != endpoint.expected {
+            start = .now
+            let (body, response) = try await session.bytes(from: url)
+            body.task.cancel()
+            code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        }
         let ms = Int((ContinuousClock.now - start) / .milliseconds(1))
         return code == endpoint.expected ? .up(code: code, ms: ms) : .down("HTTP \(code)")
     } catch {
@@ -72,15 +86,26 @@ final class Store {
     private(set) var rounds: [Round] = []
     private var streak: [UUID: Int] = [:]
     private(set) var checking = false
+    /// Offline, every check would fail and alert. Checks pause instead and resume on reconnect.
+    private(set) var online = true
+    private let path = NWPathMonitor()
 
     init() {
         let saved = UserDefaults.standard.data(forKey: "endpoints")
         endpoints = saved.flatMap { try? JSONDecoder().decode([Endpoint].self, from: $0) } ?? []
         if isApp { UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in } }
+        path.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor in
+                guard let self, self.online != (path.status == .satisfied) else { return }
+                self.online = path.status == .satisfied
+                if self.online { await self.check() }
+            }
+        }
+        path.start(queue: .global(qos: .utility))
         Task {
             while true {
                 await check()
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(60), tolerance: .seconds(10))  // lets macOS batch the wake-up
             }
         }
     }
@@ -89,10 +114,11 @@ final class Store {
     var sorted: [Endpoint] { endpoints.filter { health[$0.id]?.isDown == true } + endpoints.filter { health[$0.id]?.isDown != true } }
 
     func check() async {
-        guard !checking else { return }
+        guard !checking, online else { return }
         checking = true
         defer { checking = false }
         let snapshot = endpoints
+        // ponytail: all probes at once; fine for tens of endpoints, cap concurrency if someone watches hundreds.
         let results = await withTaskGroup(of: (UUID, Health).self) { group in
             for endpoint in snapshot { group.addTask { (endpoint.id, await probe(endpoint)) } }
             var out: [UUID: Health] = [:]
@@ -243,15 +269,17 @@ struct Popover: View {
 
     private var header: some View {
         let down = store.downCount > 0
-        let title = down ? "\(store.downCount) of \(store.endpoints.count) down"
+        let title = !store.online ? "Offline" : down ? "\(store.downCount) of \(store.endpoints.count) down"
             : store.endpoints.isEmpty ? "Upbar" : store.lastCheck == nil ? "Checking…" : "All systems operational"
         return HStack(spacing: 10) {
-            Image(systemName: down ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+            Image(systemName: !store.online ? "wifi.slash" : down ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .font(.title2)
-                .foregroundStyle(down ? .red : .green)
+                .foregroundStyle(!store.online ? Color.secondary : down ? .red : .green)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.headline)
-                if let last = store.lastCheck {
+                if !store.online {
+                    Text("Checks paused until you're back online").font(.caption).foregroundStyle(.secondary)
+                } else if let last = store.lastCheck {
                     Text("Checked \(last, style: .relative) ago").font(.caption).foregroundStyle(.secondary)
                 }
             }
