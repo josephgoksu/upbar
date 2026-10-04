@@ -10,15 +10,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: swift test
-      - run: VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+      - name: Import the Developer ID certificate (skipped when the secrets are not set)
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        run: |
+          [ -n "$CERT_P12" ] || { echo "No signing secrets: the release is ad-hoc signed."; exit 0; }
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 16)
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application[^"]*"' | head -1 | tr -d '"')
+          echo "SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          echo "NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+      - name: Build, sign and notarize
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: VERSION="${GITHUB_REF_NAME#v}" ./build.sh
       - name: "Smoke test: the app starts and keeps running"
         run: |
           open dist/Upbar.app
           sleep 10
           pgrep -x Upbar
           pkill -x Upbar
+      - name: "Gatekeeper check (notarized releases only)"
+        if: env.NOTARY_KEY != ''
+        run: spctl --assess --type execute --verbose=2 dist/Upbar.app
       - name: Release notes from CHANGELOG.md
         run: awk -v v="${GITHUB_REF_NAME#v}" '/^## \[/{p=index($0, "[" v "]")>0; next} /^\[/{p=0} p' CHANGELOG.md > notes.md
       - run: gh release create "$GITHUB_REF_NAME" dist/Upbar.zip dist/Upbar.zip.sha256 --title "Upbar $GITHUB_REF_NAME" --notes-file notes.md
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Remove the signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true

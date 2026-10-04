@@ -258,4 +258,5 @@ Files:
 - To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md).
 - To report a security problem, read [SECURITY.md](SECURITY.md).
 - For the list of changes, read [CHANGELOG.md](CHANGELOG.md).
+- To make a release, read [docs/releasing.md](docs/releasing.md).
 - Upbar has the [MIT license](LICENSE).

@@ -4,6 +4,10 @@ All important changes to Upbar are in this file. The format is from [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+
+- The release workflow can sign the app with a Developer ID certificate and send it to Apple for notarization.
+
 ## [0.1.1] - 2026-10-04
 
 ### Fixed
